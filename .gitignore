@@ -1,0 +1,8 @@
+# Runtime data — NEVER commit: holds the parent code hash, the optional
+# Anthropic API key, and the family's player progress.
+server-data/
+
+# Local tooling
+.claude/
+.DS_Store
+nohup.out

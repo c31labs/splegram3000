@@ -1,0 +1,312 @@
+<!DOCTYPE html>
+<!-- Spelgram 3000 · © 2026 Manuel Re / C31 Labs · CC BY-NC-ND 4.0
+     Free to use as-is; no modifications, no commercial use. See LICENSE. -->
+<html lang="en-AU">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+  <meta name="theme-color" content="#2e1065">
+  <title>Spelgram 3000 — Spelling &amp; Grammar Adventure</title>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='90'%3E%F0%9F%94%AE%3C/text%3E%3C/svg%3E">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Baloo+2:wght@600;700;800&family=Nunito:ital,wght@0,400;0,600;0,700;0,800;1,600&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+
+  <div class="stars-bg" aria-hidden="true"></div>
+
+  <div id="app">
+
+    <!-- ============ WHO'S PLAYING? ============ -->
+    <section id="screen-profiles" class="screen" hidden>
+      <div class="profiles-wrap">
+        <div class="profiles-logo">🔮</div>
+        <h1 class="profiles-title">Spelgram <em>3000</em></h1>
+        <h2 class="profiles-sub">Who's playing?</h2>
+        <div class="profile-grid" id="profile-grid">
+          <p class="profiles-loading">Loading players…</p>
+        </div>
+        <p class="profiles-offline" id="profiles-offline" hidden>
+          📴 Offline mode — progress will be kept on this device only.
+        </p>
+        <button id="btn-parent-zone" class="parent-link">👨‍👩‍👧 Parent zone</button>
+      </div>
+    </section>
+
+    <!-- ============ PARENT ZONE ============ -->
+    <section id="screen-parent" class="screen" hidden>
+      <header class="topbar no-print">
+        <button id="btn-parent-back" class="chip" aria-label="Back">← Back</button>
+        <h2 class="screen-title">👨‍👩‍👧 Parent zone</h2>
+        <button id="btn-parent-print" class="chip">🖨️ Print</button>
+      </header>
+      <div id="parent-content" class="parent-print-area">
+        <p class="parent-loading">Loading family stats…</p>
+      </div>
+      <div class="card parent-block no-print">
+        <h3>🧪 Word Lab</h3>
+        <p class="parent-note" id="parent-lab-note"></p>
+        <button id="btn-parent-refresh" class="btn btn-ghost">🔄 Fetch new words now</button>
+      </div>
+      <div class="card parent-block no-print">
+        <h3>⚙️ Settings</h3>
+        <div class="settings-row">
+          <span>Parent code</span>
+          <button id="btn-parent-changepin" class="btn btn-ghost btn-sm">Change code</button>
+        </div>
+        <div class="settings-row magic-key-row">
+          <div>
+            <span>Magic key</span>
+            <small id="magic-key-state" class="parent-note"></small>
+          </div>
+          <div class="magic-key-controls">
+            <input type="password" id="magic-key-input" placeholder="Paste Anthropic API key" autocomplete="off">
+            <button id="btn-key-save" class="btn btn-ghost btn-sm">Save</button>
+            <button id="btn-key-clear" class="btn btn-danger btn-sm">Clear</button>
+          </div>
+        </div>
+        <p class="parent-note">With a key from <b>console.anthropic.com</b>, the Word Lab generates brand-new
+          AI-written questions matched to the Australian curriculum. Without one, it unlocks batches from the
+          built-in word vault (640+ extra items) — both always give the kids fresh material.</p>
+      </div>
+    </section>
+
+    <!-- ============ HOME ============ -->
+    <section id="screen-home" class="screen">
+      <header class="topbar">
+        <div class="logo">
+          <span class="logo-orb">🔮</span>
+          <span class="logo-text">Spelgram <em>3000</em></span>
+        </div>
+        <div class="topbar-right">
+          <button id="btn-streak" class="chip chip-streak" title="Practice streak">🔥 <b id="streak-count">0</b></button>
+          <button id="btn-settings" class="chip chip-gear" aria-label="Settings">⚙️</button>
+        </div>
+      </header>
+
+      <div class="hero card">
+        <div class="mascot" id="mascot">
+          <svg viewBox="0 0 120 120" width="92" height="92" aria-hidden="true">
+            <defs>
+              <linearGradient id="owlBody" x1="0" y1="0" x2="0" y2="1">
+                <stop offset="0" stop-color="#a78bfa"/><stop offset="1" stop-color="#7c3aed"/>
+              </linearGradient>
+              <linearGradient id="owlHat" x1="0" y1="0" x2="0" y2="1">
+                <stop offset="0" stop-color="#6d28d9"/><stop offset="1" stop-color="#4c1d95"/>
+              </linearGradient>
+            </defs>
+            <ellipse cx="60" cy="72" rx="34" ry="36" fill="url(#owlBody)"/>
+            <ellipse cx="60" cy="82" rx="20" ry="22" fill="#ddd6fe"/>
+            <circle cx="47" cy="58" r="13" fill="#fff"/>
+            <circle cx="73" cy="58" r="13" fill="#fff"/>
+            <circle cx="49" cy="60" r="6" fill="#2e1065"/>
+            <circle cx="71" cy="60" r="6" fill="#2e1065"/>
+            <circle cx="51" cy="58" r="2" fill="#fff"/>
+            <circle cx="73" cy="58" r="2" fill="#fff"/>
+            <polygon points="60,66 55,74 65,74" fill="#fbbf24"/>
+            <path d="M26 72 Q20 88 34 96 Q30 82 36 74 Z" fill="#8b5cf6"/>
+            <path d="M94 72 Q100 88 86 96 Q90 82 84 74 Z" fill="#8b5cf6"/>
+            <path d="M38 40 L60 14 L82 40 Q60 32 38 40 Z" fill="url(#owlHat)"/>
+            <circle cx="60" cy="13" r="5" fill="#fbbf24"/>
+            <path d="M36 41 Q60 33 84 41 L84 46 Q60 38 36 46 Z" fill="#5b21b6"/>
+          </svg>
+        </div>
+        <div class="hero-text">
+          <p class="bubble" id="mascot-line">G'day! Ready to power up your spelling?</p>
+          <div class="player-row">
+            <span class="avatar" id="home-avatar">🦄</span>
+            <div class="player-info">
+              <b id="home-name">Player</b>
+              <span class="rank" id="home-rank">🌱 Wordling</span>
+            </div>
+            <span class="star-total" id="home-stars">⭐ 0</span>
+          </div>
+          <div class="xpbar" role="progressbar" aria-label="XP progress">
+            <div class="xpbar-fill" id="home-xpfill"></div>
+            <span class="xpbar-label" id="home-xptext">0 XP</span>
+          </div>
+        </div>
+      </div>
+
+      <h2 class="map-title">Choose your level</h2>
+      <div class="level-map" id="level-map"></div>
+
+      <div class="home-actions">
+        <button id="btn-trophies" class="btn btn-ghost">🏅 Trophy Room</button>
+        <button id="btn-wordlab" class="btn btn-lab">🧪 Word Lab</button>
+      </div>
+
+      <footer class="credits">Made with 💜 for future NAPLAN legends · Years 5–7</footer>
+    </section>
+
+    <!-- ============ PLAY ============ -->
+    <section id="screen-play" class="screen" hidden>
+      <header class="playbar">
+        <button id="btn-quit" class="chip" aria-label="Back to map">✕</button>
+        <div class="dots" id="progress-dots" aria-label="Question progress"></div>
+        <div class="chip chip-xp">✨ <b id="session-xp">0</b></div>
+      </header>
+
+      <div class="card q-card" id="q-card">
+        <div class="q-head">
+          <span class="q-tag" id="q-tag">Spelling</span>
+          <span class="q-count" id="q-count">1 / 10</span>
+        </div>
+        <div id="q-body"><!-- question renders here --></div>
+        <div class="hintbox" id="hintbox" hidden>
+          <b>💡 Hint:</b> <span id="hint-text"></span>
+        </div>
+        <div class="q-actions" id="q-actions">
+          <button id="btn-hint" class="btn btn-hint">💡 Hint</button>
+          <button id="btn-check" class="btn btn-primary">Check ✔</button>
+        </div>
+      </div>
+
+      <div class="feedback card" id="feedback" hidden aria-live="polite">
+        <div class="feedback-head" id="feedback-head">🎉 Ripper!</div>
+        <div class="feedback-body" id="feedback-body"></div>
+        <button id="btn-next" class="btn btn-primary btn-wide">Next ➜</button>
+      </div>
+    </section>
+
+    <!-- ============ RESULTS ============ -->
+    <section id="screen-results" class="screen" hidden>
+      <div class="card results-card">
+        <div class="results-stars" id="results-stars" aria-hidden="true">
+          <span class="rstar">★</span><span class="rstar">★</span><span class="rstar">★</span>
+        </div>
+        <h2 id="results-title">Level Complete!</h2>
+        <p class="results-score" id="results-score">8 / 10</p>
+        <p class="results-sub" id="results-sub"></p>
+        <div class="results-xp" id="results-xp">+0 XP</div>
+        <div id="results-badges" class="results-badges"></div>
+        <div class="results-actions">
+          <button id="btn-retry" class="btn btn-ghost">🔄 Try again — new questions!</button>
+          <button id="btn-continue" class="btn btn-primary btn-wide">Continue ➜</button>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============ TROPHY ROOM ============ -->
+    <section id="screen-trophies" class="screen" hidden>
+      <header class="topbar">
+        <button id="btn-trophies-back" class="chip" aria-label="Back">← Back</button>
+        <h2 class="screen-title">🏅 Trophy Room</h2>
+        <span class="chip" id="trophy-count">0 / 13</span>
+      </header>
+      <div class="badge-grid" id="badge-grid"></div>
+    </section>
+
+  </div>
+
+  <!-- ============ MODALS ============ -->
+  <div class="modal-wrap" id="modal-name" hidden>
+    <div class="modal card">
+      <h2>Welcome to Spelgram 3000! 🔮</h2>
+      <p>What should we call you, champion?</p>
+      <input type="text" id="name-input" maxlength="16" placeholder="Your name" autocomplete="off">
+      <p class="modal-label">Pick your buddy:</p>
+      <div class="avatar-row" id="avatar-row"></div>
+      <button id="btn-name-go" class="btn btn-primary btn-wide">Let's go! 🚀</button>
+    </div>
+  </div>
+
+  <div class="modal-wrap" id="modal-level" hidden>
+    <div class="modal card">
+      <div class="level-intro-head">
+        <span class="level-intro-icon" id="li-icon">🚀</span>
+        <div>
+          <h2 id="li-title">Level 1 · Launch Pad</h2>
+          <p class="li-focus" id="li-focus"></p>
+        </div>
+      </div>
+      <div class="tips" id="li-tips"></div>
+      <div class="modal-actions">
+        <button id="btn-level-cancel" class="btn btn-ghost">Back</button>
+        <button id="btn-level-start" class="btn btn-primary">Start! ⚡</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="modal-wrap" id="modal-wordlab" hidden>
+    <div class="modal card wordlab-modal">
+      <div id="wordlab-intro">
+        <h2>🧪 The Word Lab</h2>
+        <p>Brew a fresh batch of never-seen words and questions for every level!</p>
+        <p class="lab-stats" id="lab-stats"></p>
+        <div class="modal-actions">
+          <button id="btn-lab-close" class="btn btn-ghost">Back</button>
+          <button id="btn-lab-brew" class="btn btn-primary">Brew new words! ⚗️</button>
+        </div>
+      </div>
+      <div id="wordlab-progress" hidden>
+        <h2>⚗️ Brewing…</h2>
+        <div class="brew-bar"><div class="brew-fill" id="brew-fill"></div><span class="brew-pct" id="brew-pct">0%</span></div>
+        <p class="brew-msg" id="brew-msg">Warming up the cauldron… 🔥</p>
+      </div>
+      <div id="wordlab-done" hidden>
+        <h2 id="lab-done-title">🎉 Fresh words delivered!</h2>
+        <p id="lab-done-msg"></p>
+        <button id="btn-lab-done" class="btn btn-primary btn-wide">Awesome! ➜</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="modal-wrap" id="modal-pin" hidden>
+    <div class="modal card pin-modal">
+      <h2 id="pin-title">Parent zone</h2>
+      <p id="pin-sub" class="parent-note"></p>
+      <div class="pin-dots" id="pin-dots" aria-live="polite"></div>
+      <div class="pin-pad" id="pin-pad"></div>
+      <p class="pin-error" id="pin-error" hidden></p>
+      <button id="btn-pin-cancel" class="btn btn-ghost btn-wide">Cancel</button>
+    </div>
+  </div>
+
+  <div class="modal-wrap" id="modal-settings" hidden>
+    <div class="modal card">
+      <h2>⚙️ Settings</h2>
+      <div class="settings-row">
+        <span>Sounds</span>
+        <button id="toggle-sound" class="btn btn-ghost btn-sm">On 🔊</button>
+      </div>
+      <div class="settings-row">
+        <span>Name &amp; buddy</span>
+        <button id="btn-rename" class="btn btn-ghost btn-sm">Change</button>
+      </div>
+      <div class="settings-row">
+        <span>Switch player</span>
+        <button id="btn-switch" class="btn btn-ghost btn-sm">Who's playing?</button>
+      </div>
+      <div class="settings-row">
+        <span>Parent zone</span>
+        <button id="btn-settings-parent" class="btn btn-ghost btn-sm">Open</button>
+      </div>
+      <div class="settings-row">
+        <span>Start over</span>
+        <button id="btn-reset" class="btn btn-danger btn-sm">Reset progress</button>
+      </div>
+      <div class="modal-actions">
+        <button id="btn-settings-close" class="btn btn-primary btn-wide">Done</button>
+      </div>
+    </div>
+  </div>
+
+  <canvas id="confetti-canvas" aria-hidden="true"></canvas>
+
+  <script src="js/engine.js"></script>
+  <script src="data/spelling-l1-2.js"></script>
+  <script src="data/spelling-l3-4.js"></script>
+  <script src="data/spelling-l5-6.js"></script>
+  <script src="data/spelling-l7-8.js"></script>
+  <script src="data/spelling-l9-10.js"></script>
+  <script src="data/spelling-l11-12.js"></script>
+  <script src="data/grammar-l1-3.js"></script>
+  <script src="data/grammar-l4-6.js"></script>
+  <script src="data/grammar-l7-10.js"></script>
+  <script src="data/grammar-l11-12.js"></script>
+  <script src="js/app.js"></script>
+</body>
+</html>
