@@ -117,7 +117,8 @@ function save_path(string $id): string {
 /* ---------------- config store (PIN, parent tokens, Word Lab state) ---------------- */
 
 const KID_REFRESH_COOLDOWN = 21600;   // 6 hours between kid-triggered refreshes
-const PARENT_TOKEN_TTL = 7200;        // 2 hours
+const PARENT_TOKEN_TTL = 900;         // 15 min backstop; the client also drops the
+                                      // session on leaving the zone, reload or tab close
 const PIN_MAX_FAILS = 5;
 const PIN_LOCKOUT_SECONDS = 300;
 const MAX_EXTRA_ITEMS = 3000;
@@ -591,6 +592,16 @@ switch ($action) {
             return [$config, ['ok' => true, 'token' => $token]];
         });
         respond($result, ($result['ok'] ?? false) ? 200 : 401);
+    }
+
+    case 'parent-logout': {
+        $token = (string)($body['token'] ?? '');
+        with_config_lock(function (array $config) use ($token) {
+            unset($config['tokens'][$token]);
+            prune_tokens($config);
+            return [$config, null];
+        });
+        respond(['ok' => true]);
     }
 
     case 'parent-change-pin': {

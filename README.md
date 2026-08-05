@@ -12,8 +12,9 @@ aligned to the Australian Curriculum and NAPLAN Language Conventions.
   high school.
 - **Family profiles**: a "Who's playing?" screen; every child's XP, stars,
   streaks and badges are saved on your hosting and follow them to any device.
-- **760+ core questions** (spelling + grammar), every one academically
-  verified, plus a **reservoir of 600+ bonus items** unlocked through play.
+- **960 core questions** (720 spelling + 240 grammar), every one academically
+  verified, plus a **reservoir of 400 bonus items** unlocked through play —
+  1,360 in total, with every target word unique across the whole game.
 - **🧪 The Word Lab**: kids press one button to "brew" a fresh batch of
   never-seen questions with a fun progress bar. Where the new content comes
   from:
@@ -25,9 +26,11 @@ aligned to the Australian Curriculum and NAPLAN Language Conventions.
   - Either way the game reshuffles: the engine always serves least-seen items,
     so new content appears in sessions immediately. Kids can refresh once
     every 6 hours; parents can force it anytime.
-- **👨‍👩‍👧 Parent zone**, protected by a 4–8 digit **parent code** (not a
+- **👪 Parent zone**, protected by a 4–8 digit **parent code** (not a
   password — quick to type, hashed on the server, locked for 5 minutes after
-  5 wrong tries):
+  5 wrong tries). The code is asked for **every time** you open the zone: the
+  session lives in memory only, so leaving it, reloading, or closing the tab
+  all end it — a child can never inherit an open parent session:
   - Per-child dashboard: accuracy, XP, stars, streak, **words to practise**
     (exactly which words they get wrong, how often, at what level) and
     **grammar topics to revisit** — with a **Print** button for a paper

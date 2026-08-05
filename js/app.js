@@ -650,9 +650,16 @@
   }
 
   /* ---------------- parent zone: PIN pad ---------------- */
+  /* The parent session lives in memory ONLY — never in storage. A reload, a new
+     tab, or leaving the parent zone all drop it, so the code is asked for again.
+     Kids must never inherit an open parent session on a shared device. */
   const Parent = {
-    get token() { try { return sessionStorage.getItem('spelgram-parent-token') || ''; } catch (e) { return ''; } },
-    set token(v) { try { v ? sessionStorage.setItem('spelgram-parent-token', v) : sessionStorage.removeItem('spelgram-parent-token'); } catch (e) {} },
+    token: '',
+    lock: function () {
+      const old = this.token;
+      this.token = '';
+      if (old) E.Net.api('parent-logout', { token: old }); /* invalidate server-side too */
+    },
   };
   let pinEntry = '', pinFirst = null, pinMode = 'login', pinOnSuccess = null;
 
@@ -953,6 +960,7 @@
     $('btn-pin-cancel').addEventListener('click', function () { closeModal('modal-pin'); });
     $('btn-parent-back').addEventListener('click', function () {
       E.SFX.play('click');
+      Parent.lock(); /* leaving the zone ends the parent session */
       if (E.Profiles.currentId()) { show('screen-home'); renderHome(); }
       else { goToProfilePicker(); }
     });
@@ -1055,13 +1063,20 @@
 
     /* make sure the last few answers reach the server when the tab closes,
        and pick up newer progress from other devices when the tab comes back */
-    window.addEventListener('pagehide', function () { E.Net.flushBeacon(); });
+    window.addEventListener('pagehide', function () { E.Net.flushBeacon(); Parent.token = ''; });
     document.addEventListener('visibilitychange', function () {
       if (document.visibilityState === 'hidden') { E.Net.flushBeacon(); return; }
       E.Profiles.resync().then(function (replaced) {
         if (replaced && !$('screen-home').hidden) renderHome();
       });
     });
+
+    /* purge any parent token left in storage by an older build — the session is
+       memory-only now, and a lingering one must never grant access */
+    try {
+      sessionStorage.removeItem('spelgram-parent-token');
+      localStorage.removeItem('spelgram-parent-token');
+    } catch (e) {}
 
     /* boot: find out who's playing */
     show('screen-profiles');
