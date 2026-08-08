@@ -29,7 +29,7 @@
   let results = []; /* true/false per question */
 
   /* ---------------- screens ---------------- */
-  const SCREENS = ['screen-profiles', 'screen-home', 'screen-play', 'screen-results', 'screen-trophies', 'screen-parent'];
+  const SCREENS = ['screen-auth', 'screen-profiles', 'screen-home', 'screen-play', 'screen-results', 'screen-trophies', 'screen-parent'];
   function show(id) {
     SCREENS.forEach(function (s) { $(s).hidden = (s !== id); });
     window.scrollTo(0, 0);
@@ -892,7 +892,7 @@
           updatedAt: Math.max(((res && res.save && res.save.updatedAt) || 0) + 1, Date.now()) };
         await E.Net.api('save', { id: id, save: fresh });
       }
-      try { localStorage.removeItem('spelgram3000-v2-save-' + id); } catch (e) {}
+      E.Profiles.dropSaveCache(id);
       if (E.Profiles.currentId() === id) { await E.Profiles.select(id); }
       showParentZone();
     } else if (act === 'delete') {
@@ -903,10 +903,159 @@
         if (!res) { window.alert('Could not delete — your parent session may have expired. Go back and re-enter the code.'); return; }
       }
       E.Profiles.saveLocalList(E.Profiles.localList().filter(function (q) { return q.id !== id; }));
-      try { localStorage.removeItem('spelgram3000-v2-save-' + id); } catch (e) {}
+      E.Profiles.dropSaveCache(id);
       if (E.Profiles.currentId() === id) E.Profiles.signOut();
       showParentZone();
     }
+  }
+
+  /* ---------------- family sign-in screen ---------------- */
+  let authMode = 'login'; /* login | register | forgot | reset */
+
+  const AUTH_MODES = {
+    login: {
+      title: 'Family sign-in', btn: 'Sign in',
+      sub: 'Welcome back! Sign in to see your family\'s players.',
+      fields: { family: false, email: true, code: false, password: true },
+      toggle: 'New here? Create your family account',
+    },
+    register: {
+      title: 'Create your family account', btn: 'Create account 🚀',
+      sub: 'One free account per family — then every child gets their own player.',
+      fields: { family: true, email: true, code: false, password: true },
+      toggle: 'Already have an account? Sign in',
+    },
+    forgot: {
+      title: 'Reset your password', btn: 'Email me a code',
+      sub: 'Tell us your account email and we\'ll send a 6-digit reset code.',
+      fields: { family: false, email: true, code: false, password: false },
+      toggle: 'Back to sign-in',
+    },
+    reset: {
+      title: 'Choose a new password', btn: 'Set new password',
+      sub: 'Enter the 6-digit code from the email and pick a new password.',
+      fields: { family: false, email: true, code: true, password: true },
+      toggle: 'Back to sign-in',
+    },
+  };
+
+  function setAuthMode(mode) {
+    authMode = mode;
+    const m = AUTH_MODES[mode];
+    $('auth-title').textContent = m.title;
+    $('auth-sub').textContent = m.sub;
+    $('btn-auth-go').textContent = m.btn;
+    $('auth-family-wrap').hidden = !m.fields.family;
+    $('auth-email-wrap').hidden = !m.fields.email;
+    $('auth-code-wrap').hidden = !m.fields.code;
+    $('auth-password-wrap').hidden = !m.fields.password;
+    $('auth-password').setAttribute('autocomplete', mode === 'login' ? 'current-password' : 'new-password');
+    $('auth-password').placeholder = mode === 'login' ? 'Your password' : 'At least 8 characters';
+    $('btn-auth-toggle').textContent = m.toggle;
+    $('btn-auth-forgot').hidden = mode !== 'login';
+    $('auth-error').hidden = true;
+  }
+
+  function showAuthScreen(mode, errorMsg) {
+    setAuthMode(mode || 'login');
+    $('auth-offline').hidden = E.Net.online;
+    $('btn-auth-go').disabled = false;
+    if (errorMsg) showAuthError(errorMsg);
+    show('screen-auth');
+  }
+
+  function showAuthError(msg) {
+    $('auth-error').textContent = msg;
+    $('auth-error').hidden = false;
+  }
+
+  async function submitAuth() {
+    const email = $('auth-email').value.trim();
+    const password = $('auth-password').value;
+    $('auth-error').hidden = true;
+    if (!email || email.indexOf('@') === -1) {
+      showAuthError('Please enter your email address.');
+      return;
+    }
+    if (authMode !== 'forgot' && password.length < 8) {
+      showAuthError('The password needs at least 8 characters.');
+      return;
+    }
+
+    const btn = $('btn-auth-go');
+    btn.disabled = true;
+    try {
+      let res = null;
+      if (authMode === 'login') {
+        res = await E.Auth.login(email, password);
+      } else if (authMode === 'register') {
+        const family = $('auth-family').value.trim();
+        if (!family) {
+          showAuthError('Please enter a family name — it\'s what the kids will see.');
+          return;
+        }
+        res = await E.Auth.register(family, email, password);
+      } else if (authMode === 'forgot') {
+        res = await E.Auth.resetRequest(email);
+        if (res && res.ok) {
+          setAuthMode('reset');
+          $('auth-sub').textContent = 'If ' + email + ' has an account, a 6-digit code is on its way. Enter it below with your new password.';
+          return;
+        }
+      } else { /* reset */
+        const code = $('auth-code').value.trim();
+        if (!/^[0-9]{6}$/.test(code)) {
+          showAuthError('The reset code is the 6 digits from the email.');
+          return;
+        }
+        res = await E.Auth.resetConfirm(email, code, password);
+      }
+
+      if (res && res.ok && E.Auth.signedIn()) {
+        $('auth-password').value = '';
+        $('auth-code').value = '';
+        await enterFamily();
+        return;
+      }
+      if (!res) {
+        showAuthError('Could not reach the server — check your connection and try again.');
+        $('auth-offline').hidden = false;
+      } else if (res.error === 'locked') {
+        const mins = Math.ceil((res.waitSeconds || 60) / 60);
+        showAuthError('Too many wrong tries — sign-in is paused for ' + mins + ' minute' + (mins === 1 ? '' : 's') + '.');
+      } else if (authMode !== 'forgot') {
+        showAuthError(res.error || 'Something went wrong — please try again.');
+      }
+    } finally {
+      btn.disabled = false;
+    }
+  }
+
+  /* signed in (or restored from cache) — load this family's world */
+  async function enterFamily() {
+    $('family-label').textContent = '👪 ' + (E.Auth.family || E.Auth.email);
+    $('family-line').hidden = false;
+    show('screen-profiles');
+    $('profile-grid').innerHTML = '<p class="profiles-loading">Loading players…</p>';
+    $('profiles-offline').hidden = E.Net.online;
+    await E.Net.loadExtraBank();
+    await bootProfiles();
+  }
+
+  /* no account, no connection — the game still works, saved on this device only */
+  async function enterDeviceMode() {
+    $('family-line').hidden = true;
+    show('screen-profiles');
+    $('profiles-offline').hidden = false;
+    await bootProfiles();
+  }
+
+  async function signOutFamily() {
+    if (!window.confirm('Sign out of the family account on this device?')) return;
+    await E.Net.pushNow();
+    E.Profiles.signOut();
+    await E.Auth.signOut();
+    window.location.reload(); /* clean slate — reboot into the sign-in screen */
   }
 
   /* ---------------- wiring ---------------- */
@@ -1078,12 +1227,47 @@
       localStorage.removeItem('spelgram-parent-token');
     } catch (e) {}
 
-    /* boot: find out who's playing */
-    show('screen-profiles');
+    /* family sign-in */
+    $('btn-auth-go').addEventListener('click', function () { submitAuth(); });
+    ['auth-family', 'auth-email', 'auth-code', 'auth-password'].forEach(function (id) {
+      $(id).addEventListener('keydown', function (ev) {
+        if (ev.key === 'Enter' && !$('btn-auth-go').disabled) submitAuth();
+      });
+    });
+    $('btn-auth-toggle').addEventListener('click', function () {
+      setAuthMode(authMode === 'login' ? 'register' : 'login');
+    });
+    $('btn-auth-forgot').addEventListener('click', function () { setAuthMode('forgot'); });
+    $('btn-auth-retry').addEventListener('click', async function () {
+      await E.Net.boot();
+      $('auth-offline').hidden = E.Net.online;
+      if (E.Net.online && E.Auth.signedIn()) {
+        const valid = await E.Auth.check();
+        if (valid !== false) { enterFamily(); }
+      }
+    });
+    $('btn-auth-device').addEventListener('click', function () { enterDeviceMode(); });
+    $('btn-signout').addEventListener('click', function () { signOutFamily(); });
+    E.Auth.onExpired = function () {
+      showAuthScreen('login', 'Your sign-in expired — please sign in again.');
+    };
+
+    /* boot: sign the family in, then find out who's playing */
+    show('screen-profiles'); /* shows "Loading players…" while we ping the server */
     await E.Net.boot();
-    $('profiles-offline').hidden = E.Net.online;
-    await E.Net.loadExtraBank();
-    await bootProfiles();
+    if (E.Net.online) {
+      const valid = await E.Auth.check();
+      if (valid === true || (valid === null && E.Auth.signedIn())) {
+        await enterFamily();
+      } else {
+        showAuthScreen('login');
+      }
+    } else if (E.Auth.signedIn()) {
+      /* signed in earlier on this device — play from the local cache for now */
+      await enterFamily();
+    } else {
+      showAuthScreen('login');
+    }
   }
 
   if (document.readyState === 'loading') {

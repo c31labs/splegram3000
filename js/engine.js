@@ -51,10 +51,105 @@
     return String(s || '').trim().toLowerCase().replace(/[’‘]/g, "'").replace(/\s+/g, ' ');
   }
 
+  /* ---------- family account (sign-in) ---------- */
+  const KEY_AUTH = 'spelgram3000-auth';
+
+  /* The signed-in family account. The token is a server session; everything a
+     family stores locally is namespaced by account id, so two families sharing
+     a browser can never see each other's cached players or progress. */
+  const Auth = {
+    token: '', acctId: '', email: '', family: '',
+    onExpired: null,
+    load: function () {
+      try {
+        const a = JSON.parse(localStorage.getItem(KEY_AUTH) || 'null');
+        if (a && a.token && a.acctId) {
+          this.token = a.token; this.acctId = a.acctId;
+          this.email = a.email || ''; this.family = a.family || '';
+        }
+      } catch (e) {}
+    },
+    persist: function () {
+      try {
+        if (this.token) {
+          localStorage.setItem(KEY_AUTH, JSON.stringify({
+            token: this.token, acctId: this.acctId, email: this.email, family: this.family,
+          }));
+        } else {
+          localStorage.removeItem(KEY_AUTH);
+        }
+      } catch (e) {}
+    },
+    signedIn: function () { return !!this.token; },
+    apply: function (res) {
+      this.token = res.auth;
+      this.acctId = res.account.id;
+      this.email = res.account.email;
+      this.family = res.account.family || '';
+      this.persist();
+    },
+    /* these return the raw server response (not null on a clean error) so the
+       sign-in screen can show the real message — "wrong email or password" etc. */
+    register: function (family, email, password) {
+      const self = this;
+      return Net.apiRaw('register', { family: family, email: email, password: password }, 15000)
+        .then(function (res) { if (res && res.ok) self.apply(res); return res; });
+    },
+    login: function (email, password) {
+      const self = this;
+      return Net.apiRaw('login', { email: email, password: password }, 15000)
+        .then(function (res) { if (res && res.ok) self.apply(res); return res; });
+    },
+    resetRequest: function (email) {
+      return Net.apiRaw('reset-request', { email: email }, 15000);
+    },
+    resetConfirm: function (email, code, password) {
+      const self = this;
+      return Net.apiRaw('reset-confirm', { email: email, code: code, password: password }, 15000)
+        .then(function (res) { if (res && res.ok) self.apply(res); return res; });
+    },
+    /* validate the stored token at boot: true = valid, false = rejected,
+       null = server unreachable (keep the cached account for offline play) */
+    check: function () {
+      const self = this;
+      if (!this.token) return Promise.resolve(false);
+      return Net.apiRaw('me', {}, 6000).then(function (res) {
+        if (!res) return null;
+        if (res.ok) {
+          self.email = res.account.email;
+          self.family = res.account.family || '';
+          self.persist();
+          return true;
+        }
+        self.clear();
+        return false;
+      });
+    },
+    signOut: function () {
+      const token = this.token;
+      this.clear();
+      return token ? Net.api('logout', { auth: token }) : Promise.resolve(null);
+    },
+    clear: function () {
+      this.token = ''; this.acctId = ''; this.email = ''; this.family = '';
+      this.persist();
+    },
+    /* the server said "sign-in required" — the session expired or was revoked */
+    expire: function () {
+      if (!this.token) return;
+      this.clear();
+      if (this.onExpired) this.onExpired();
+    },
+  };
+  Auth.load();
+
   /* ---------- profiles, save data & server sync ---------- */
-  const KEY_CURRENT = 'spelgram3000-current';
-  const KEY_SAVE_PREFIX = 'spelgram3000-v2-save-';
-  const KEY_LOCAL_PROFILES = 'spelgram3000-v2-profiles-local';
+  /* storage keys are namespaced per account; the legacy unsuffixed keys serve
+     as the 'device' namespace for offline, never-signed-in play */
+  function nsSuffix() { return Auth.acctId ? '-' + Auth.acctId : ''; }
+  function keyCurrent() { return 'spelgram3000-current' + nsSuffix(); }
+  function keySavePrefix() { return 'spelgram3000-v2-save' + nsSuffix() + '-'; }
+  function keyLocalProfiles() { return 'spelgram3000-v2-profiles-local' + nsSuffix(); }
   const KEY_V1 = 'spelgram3000-v1';
 
   let save = null;
@@ -62,7 +157,7 @@
   /* sync is armed only after we successfully read this profile's server copy in
      this session — otherwise a blind push could overwrite real progress */
   let syncArmed = false;
-  try { currentProfileId = localStorage.getItem(KEY_CURRENT) || null; } catch (e) {}
+  try { currentProfileId = localStorage.getItem(keyCurrent()) || null; } catch (e) {}
 
   function freshSave() {
     return {
@@ -76,7 +171,7 @@
       updatedAt: 0,
     };
   }
-  function storageKey() { return KEY_SAVE_PREFIX + (currentProfileId || 'guest'); }
+  function storageKey() { return keySavePrefix() + (currentProfileId || 'guest'); }
   function asPlainObject(v) {
     if (!v || typeof v !== 'object') return {};
     if (!Array.isArray(v)) return v;
@@ -116,15 +211,32 @@
     syncTimer: null,
     isServerId: function (id) { return typeof id === 'string' && id.indexOf('p_') === 0; },
     api: function (action, payload, timeoutMs) {
+      return this.apiRaw(action, payload, timeoutMs)
+        .then(function (data) { return (data && data.ok) ? data : null; });
+    },
+    /* like api() but also returns the server's clean error responses (the
+       sign-in screens need the real message); null = couldn't reach the server */
+    apiRaw: function (action, payload, timeoutMs) {
       const ctrl = ('AbortController' in window) ? new AbortController() : null;
       const timer = ctrl && setTimeout(function () { ctrl.abort(); }, timeoutMs || 6000);
       return fetch('api.php', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(Object.assign({ action: action }, payload || {})),
+        /* the family session token rides along on every call; an explicit
+           auth in the payload (e.g. logout) wins over the ambient one */
+        body: JSON.stringify(Object.assign(
+          { action: action },
+          Auth.token ? { auth: Auth.token } : {},
+          payload || {}
+        )),
         signal: ctrl ? ctrl.signal : undefined,
       }).then(function (res) { return res.json(); })
-        .then(function (data) { return (data && data.ok) ? data : null; })
+        .then(function (data) {
+          if (data && !data.ok && data.error === 'sign-in required' && action !== 'me') {
+            Auth.expire();
+          }
+          return data || null;
+        })
         .catch(function () { return null; })
         .finally(function () { if (timer) clearTimeout(timer); });
     },
@@ -170,7 +282,7 @@
       if (!this.canSync() || !save) return;
       try {
         navigator.sendBeacon('api.php', new Blob(
-          [JSON.stringify({ action: 'save', id: currentProfileId, save: save })],
+          [JSON.stringify({ action: 'save', auth: Auth.token, id: currentProfileId, save: save })],
           { type: 'text/plain' }
         ));
       } catch (e) {}
@@ -179,16 +291,19 @@
 
   const Profiles = {
     localList: function () {
-      try { return JSON.parse(localStorage.getItem(KEY_LOCAL_PROFILES) || '[]'); } catch (e) { return []; }
+      try { return JSON.parse(localStorage.getItem(keyLocalProfiles()) || '[]'); } catch (e) { return []; }
     },
     saveLocalList: function (list) {
-      try { localStorage.setItem(KEY_LOCAL_PROFILES, JSON.stringify(list)); } catch (e) {}
+      try { localStorage.setItem(keyLocalProfiles(), JSON.stringify(list)); } catch (e) {}
     },
     peekSave: function (id) {
       try {
-        const raw = localStorage.getItem(KEY_SAVE_PREFIX + id);
+        const raw = localStorage.getItem(keySavePrefix() + id);
         return raw ? JSON.parse(raw) : null;
       } catch (e) { return null; }
+    },
+    dropSaveCache: function (id) {
+      try { localStorage.removeItem(keySavePrefix() + id); } catch (e) {}
     },
     summaryOf: function (s) {
       if (!s) return { xp: 0, stars: 0, badges: 0 };
@@ -210,13 +325,13 @@
               if (!res) return; /* still offline for this one — keep it local, try next boot */
               const newId = res.profile.id;
               if (blob) {
-                try { localStorage.setItem(KEY_SAVE_PREFIX + newId, JSON.stringify(blob)); } catch (e) {}
+                try { localStorage.setItem(keySavePrefix() + newId, JSON.stringify(blob)); } catch (e) {}
               }
-              try { localStorage.removeItem(KEY_SAVE_PREFIX + p.id); } catch (e) {}
+              try { localStorage.removeItem(keySavePrefix() + p.id); } catch (e) {}
               self.saveLocalList(self.localList().filter(function (q) { return q.id !== p.id; }));
               if (currentProfileId === p.id) {
                 currentProfileId = newId;
-                try { localStorage.setItem(KEY_CURRENT, newId); } catch (e) {}
+                try { localStorage.setItem(keyCurrent(), newId); } catch (e) {}
               }
             });
         });
@@ -254,7 +369,7 @@
         list.push({ id: profile.id, name: profile.name, avatar: profile.avatar });
         self.saveLocalList(list);
         if (initialSave) {
-          try { localStorage.setItem(KEY_SAVE_PREFIX + profile.id, JSON.stringify(initialSave)); } catch (e) {}
+          try { localStorage.setItem(keySavePrefix() + profile.id, JSON.stringify(initialSave)); } catch (e) {}
         }
         return profile;
       }
@@ -284,7 +399,7 @@
       return Net.pushNow().then(function () {
         syncArmed = false;
         currentProfileId = id;
-        try { localStorage.setItem(KEY_CURRENT, id); } catch (e) {}
+        try { localStorage.setItem(keyCurrent(), id); } catch (e) {}
         save = null;
         if (!Net.online || !Net.isServerId(id)) return loadSave();
         return Net.api('load', { id: id }).then(function (res) {
@@ -299,7 +414,7 @@
           const remote = res.save;
           if (remote && (!local || (remote.updatedAt || 0) >= (local.updatedAt || 0))) {
             hydrate(remote); /* server copy wins — keep it in memory, cache best-effort */
-            try { localStorage.setItem(KEY_SAVE_PREFIX + id, JSON.stringify(remote)); } catch (e) {}
+            try { localStorage.setItem(keySavePrefix() + id, JSON.stringify(remote)); } catch (e) {}
             return save;
           }
           if (local) {
@@ -325,7 +440,7 @@
         const remote = res.save;
         if (remote && (remote.updatedAt || 0) > localT) {
           hydrate(remote);
-          try { localStorage.setItem(KEY_SAVE_PREFIX + id, JSON.stringify(remote)); } catch (e) {}
+          try { localStorage.setItem(keySavePrefix() + id, JSON.stringify(remote)); } catch (e) {}
           return true;
         }
         if (localT > ((remote && remote.updatedAt) || 0)) Net.pushNow();
@@ -338,7 +453,7 @@
       syncArmed = false;
       currentProfileId = null;
       save = null;
-      try { localStorage.removeItem(KEY_CURRENT); } catch (e) {}
+      try { localStorage.removeItem(keyCurrent()); } catch (e) {}
     },
     v1Save: function () {
       try {
@@ -795,6 +910,6 @@
     buildSession: buildSession, recordAnswer: recordAnswer, finishLevel: finishLevel,
     levelUnlocked: levelUnlocked,
     Speech: Speech, SFX: SFX, Confetti: Confetti,
-    Net: Net, Profiles: Profiles,
+    Net: Net, Profiles: Profiles, Auth: Auth,
   };
 })();

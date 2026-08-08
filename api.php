@@ -1,10 +1,20 @@
 <?php
 /**
- * Spelgram 3000 — profile & progress API (v2)
+ * Spelgram 3000 — accounts, profiles & progress API (v3, multi-family)
  *
  * File-based storage (no database needed on shared hosting):
- *   server-data/profiles.json   registry of players
- *   server-data/save_<id>.json  one progress blob per player
+ *   server-data/accounts.json                 registry of family accounts
+ *   server-data/sessions.json                 sign-in session tokens (hashed)
+ *   server-data/throttle.json                 per-IP rate limiting for auth endpoints
+ *   server-data/accounts/<acct>/profiles.json     that family's players
+ *   server-data/accounts/<acct>/save_<id>.json    one progress blob per player
+ *   server-data/accounts/<acct>/config.json       parent PIN, Word Lab key & state
+ *   server-data/accounts/<acct>/extra-bank.json   that family's unlocked bonus items
+ *
+ * Every family account is fully isolated: all player/parent/Word Lab actions
+ * require a session token ("auth") and only ever touch that account's folder.
+ * Kids never have logins — a family signs in once, then children just pick
+ * their player on the "Who's playing?" screen.
  *
  * All requests are POST with a JSON body: {"action": "...", ...}
  * (GET ?action=ping is also allowed so you can test in a browser.)
@@ -58,8 +68,190 @@ function atomic_write(string $path, string $content): bool {
     return true;
 }
 
+/* ---------------- family accounts & sessions ---------------- */
+
+const MAX_ACCOUNTS = 500;             // protects a shared host from runaway sign-ups
+const SESSION_TTL = 2592000;          // families stay signed in for 30 days (sliding)
+const MAX_SESSIONS_PER_ACCOUNT = 10;  // phones + tablets + laptops; oldest gets dropped
+const LOGIN_MAX_FAILS = 8;
+const LOGIN_LOCKOUT_SECONDS = 600;
+const RESET_CODE_TTL = 900;
+const RESET_MAX_TRIES = 5;
+
+$ACCT = null; // account id of the signed-in family, set by require_account()
+
+function accounts_path(): string { return DATA_DIR . '/accounts.json'; }
+function sessions_path(): string { return DATA_DIR . '/sessions.json'; }
+function throttle_path(): string { return DATA_DIR . '/throttle.json'; }
+
+function valid_acct_id(?string $id): bool {
+    return is_string($id) && (bool)preg_match('/^a_[a-f0-9]{12}$/', $id);
+}
+
+function acct_dir(): string {
+    global $ACCT;
+    if (!valid_acct_id($ACCT)) { fail('sign-in required', 401); }
+    return DATA_DIR . '/accounts/' . $ACCT;
+}
+
+function ensure_acct_dir(): void {
+    $dir = acct_dir();
+    if (!is_dir($dir) && !@mkdir($dir, 0755, true)) {
+        fail('cannot create account data directory (check hosting file permissions)', 500);
+    }
+}
+
+/** Coarse exclusive lock shared by all account/session/throttle writes. */
+function with_accounts_lock(callable $fn) {
+    $lock = fopen(accounts_path() . '.lock', 'c');
+    if ($lock) { flock($lock, LOCK_EX); }
+    try {
+        return $fn();
+    } finally {
+        if ($lock) { flock($lock, LOCK_UN); fclose($lock); }
+    }
+}
+
+function load_accounts(): array {
+    $raw = @file_get_contents(accounts_path());
+    $data = $raw === false ? null : json_decode($raw, true);
+    if (!is_array($data) || !isset($data['accounts']) || !is_array($data['accounts'])) {
+        return ['accounts' => []];
+    }
+    return $data;
+}
+
+function save_accounts(array $data): void {
+    $json = json_encode($data, JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT);
+    if ($json === false || !atomic_write(accounts_path(), $json)) {
+        fail('could not write accounts', 500);
+    }
+}
+
+function clean_email(string $email): ?string {
+    $email = strtolower(trim($email));
+    if (strlen($email) > 120 || !filter_var($email, FILTER_VALIDATE_EMAIL)) { return null; }
+    return $email;
+}
+
+function valid_password(string $pw): bool {
+    $len = strlen($pw);
+    return $len >= 8 && $len <= 200;
+}
+
+/**
+ * Per-IP sliding-window rate limit for the auth endpoints. File-based like
+ * everything else; fails the request with 429 when the window is full.
+ */
+function throttle_check(string $kind, int $max, int $window): void {
+    $ip = $_SERVER['REMOTE_ADDR'] ?? 'unknown';
+    $key = $kind . ':' . hash('sha256', $ip);
+    $ok = with_accounts_lock(function () use ($key, $max, $window) {
+        $raw = @file_get_contents(throttle_path());
+        $data = $raw === false ? null : json_decode($raw, true);
+        if (!is_array($data)) { $data = []; }
+        $now = time();
+        $hits = array_values(array_filter(
+            is_array($data[$key] ?? null) ? $data[$key] : [],
+            fn($t) => is_numeric($t) && $t > $now - $window
+        ));
+        if (count($hits) >= $max) { return false; }
+        $hits[] = $now;
+        $data[$key] = $hits;
+        // keep the file tiny: drop keys with no hits in the last day
+        $data = array_filter($data, fn($ts) => is_array($ts) && count($ts) && max($ts) > $now - 86400);
+        atomic_write(throttle_path(), json_encode($data));
+        return true;
+    });
+    if (!$ok) { fail('too many attempts — please wait a while and try again', 429); }
+}
+
+function load_sessions(): array {
+    $raw = @file_get_contents(sessions_path());
+    $data = $raw === false ? null : json_decode($raw, true);
+    return is_array($data) ? $data : [];
+}
+
+function save_sessions(array $sessions): void {
+    if (!atomic_write(sessions_path(), json_encode($sessions))) {
+        fail('could not write sessions', 500);
+    }
+}
+
+/** Tokens are stored hashed: a copied server-data folder must not grant sign-in. */
+function issue_session(string $acctId): string {
+    $token = bin2hex(random_bytes(16));
+    with_accounts_lock(function () use ($token, $acctId) {
+        $now = time();
+        $sessions = array_filter(load_sessions(), fn($s) => is_array($s) && ($s['exp'] ?? 0) > $now);
+        $mine = array_filter($sessions, fn($s) => ($s['acct'] ?? '') === $acctId);
+        if (count($mine) >= MAX_SESSIONS_PER_ACCOUNT) {
+            uasort($mine, fn($a, $b) => ($a['exp'] ?? 0) <=> ($b['exp'] ?? 0));
+            $drop = count($mine) - MAX_SESSIONS_PER_ACCOUNT + 1;
+            foreach (array_slice(array_keys($mine), 0, $drop) as $k) { unset($sessions[$k]); }
+        }
+        $sessions[hash('sha256', $token)] = ['acct' => $acctId, 'exp' => $now + SESSION_TTL];
+        save_sessions($sessions);
+        return null;
+    });
+    return $token;
+}
+
+function drop_session(?string $token): void {
+    if (!is_string($token) || $token === '') { return; }
+    with_accounts_lock(function () use ($token) {
+        $sessions = load_sessions();
+        unset($sessions[hash('sha256', $token)]);
+        save_sessions($sessions);
+        return null;
+    });
+}
+
+function drop_account_sessions(string $acctId): void {
+    with_accounts_lock(function () use ($acctId) {
+        save_sessions(array_filter(load_sessions(), fn($s) => ($s['acct'] ?? '') !== $acctId));
+        return null;
+    });
+}
+
+function find_account(array $data, string $email): ?int {
+    foreach ($data['accounts'] as $i => $a) {
+        if (($a['email'] ?? '') === $email) { return $i; }
+    }
+    return null;
+}
+
+/**
+ * Resolves the session token in the body, sets $ACCT and makes sure the
+ * account's data folder exists. Every player/parent/Word Lab action runs
+ * through this, so one family can never touch another family's files.
+ */
+function require_account(array $body): void {
+    global $ACCT;
+    $token = $body['auth'] ?? null;
+    if (!is_string($token) || $token === '') { fail('sign-in required', 401); }
+    $hash = hash('sha256', $token);
+    $sess = load_sessions()[$hash] ?? null;
+    if (!is_array($sess) || ($sess['exp'] ?? 0) <= time() || !valid_acct_id($sess['acct'] ?? null)) {
+        fail('sign-in required', 401);
+    }
+    $ACCT = $sess['acct'];
+    // sliding renewal — rewrite the file at most once a day per session
+    if (($sess['exp'] - time()) < SESSION_TTL - 86400) {
+        with_accounts_lock(function () use ($hash) {
+            $sessions = load_sessions();
+            if (isset($sessions[$hash])) {
+                $sessions[$hash]['exp'] = time() + SESSION_TTL;
+                save_sessions($sessions);
+            }
+            return null;
+        });
+    }
+    ensure_acct_dir();
+}
+
 function registry_path(): string {
-    return DATA_DIR . '/profiles.json';
+    return acct_dir() . '/profiles.json';
 }
 
 function load_registry(): array {
@@ -82,15 +274,15 @@ function save_registry(array $registry): void {
     }
 }
 
-function clean_name(string $name): string {
+function clean_name(string $name, int $max = 16): string {
     $name = trim(strip_tags($name));
     $name = preg_replace('/\s+/u', ' ', $name) ?? '';
     if (function_exists('mb_substr')) {
-        $name = mb_substr($name, 0, 16);
-    } elseif (preg_match('/^.{0,16}/us', $name, $m)) {
+        $name = mb_substr($name, 0, $max);
+    } elseif (preg_match('/^.{0,' . $max . '}/us', $name, $m)) {
         $name = $m[0]; // UTF-8-safe truncation without mbstring
     } else {
-        $name = substr($name, 0, 16);
+        $name = substr($name, 0, $max);
         while ($name !== '' && json_encode($name) === false) {
             $name = substr($name, 0, -1); // strip a trailing partial UTF-8 sequence
         }
@@ -111,7 +303,7 @@ function valid_id(string $id): bool {
 }
 
 function save_path(string $id): string {
-    return DATA_DIR . '/save_' . $id . '.json';
+    return acct_dir() . '/save_' . $id . '.json';
 }
 
 /* ---------------- config store (PIN, parent tokens, Word Lab state) ---------------- */
@@ -125,8 +317,8 @@ const MAX_EXTRA_ITEMS = 3000;
 const ALLOWED_AI_MODELS = ['claude-opus-5', 'claude-sonnet-5', 'claude-haiku-4-5'];
 const DEFAULT_AI_MODEL = 'claude-opus-5';
 
-function config_path(): string { return DATA_DIR . '/config.json'; }
-function extra_bank_path(): string { return DATA_DIR . '/extra-bank.json'; }
+function config_path(): string { return acct_dir() . '/config.json'; }
+function extra_bank_path(): string { return acct_dir() . '/extra-bank.json'; }
 
 function default_config(): array {
     return [
@@ -416,11 +608,180 @@ if (!is_string($action) || $action === '') {
     fail('missing action');
 }
 
+// everything except these runs inside a signed-in family account
+$publicActions = ['ping', 'register', 'login', 'logout', 'reset-request', 'reset-confirm'];
+if (!in_array($action, $publicActions, true)) {
+    require_account($body);
+}
+
 switch ($action) {
 
     case 'ping':
         respond(['ok' => true, 'app' => 'spelgram3000', 'v' => 3]);
         // no break — respond() exits
+
+    /* ---------------- family accounts ---------------- */
+
+    case 'register': {
+        throttle_check('register', 5, 3600);
+        $email = clean_email((string)($body['email'] ?? ''));
+        if ($email === null) { fail('please enter a valid email address'); }
+        $password = (string)($body['password'] ?? '');
+        if (!valid_password($password)) { fail('the password needs at least 8 characters'); }
+        $family = clean_name((string)($body['family'] ?? ''), 40);
+        if ($family === '') { fail('please enter a family name (it\'s what the kids will see)'); }
+
+        $hash = password_hash($password, PASSWORD_DEFAULT); // outside the lock — it's slow
+        $result = with_accounts_lock(function () use ($email, $family, $hash) {
+            $data = load_accounts();
+            if (count($data['accounts']) >= MAX_ACCOUNTS) {
+                return ['ok' => false, 'error' => 'sign-ups are full right now — please try again later'];
+            }
+            if (find_account($data, $email) !== null) {
+                return ['ok' => false, 'error' => 'that email already has an account — try signing in instead'];
+            }
+            $id = 'a_' . bin2hex(random_bytes(6));
+            $data['accounts'][] = [
+                'id' => $id, 'email' => $email, 'family' => $family, 'pass_hash' => $hash,
+                'createdAt' => time(), 'fail_count' => 0, 'lock_until' => 0,
+            ];
+            save_accounts($data);
+            return ['ok' => true, 'id' => $id];
+        });
+        if (!($result['ok'] ?? false)) { respond($result, 400); }
+        $token = issue_session($result['id']);
+        respond(['ok' => true, 'auth' => $token,
+                 'account' => ['id' => $result['id'], 'email' => $email, 'family' => $family]]);
+    }
+
+    case 'login': {
+        throttle_check('login', 30, 3600);
+        $email = clean_email((string)($body['email'] ?? ''));
+        $password = (string)($body['password'] ?? '');
+        if ($email === null || $password === '') {
+            fail('wrong email or password', 401);
+        }
+        $result = with_accounts_lock(function () use ($email, $password) {
+            $data = load_accounts();
+            $i = find_account($data, $email);
+            if ($i === null) {
+                password_hash($password, PASSWORD_DEFAULT); // unknown email costs the same time as a wrong password
+                return ['ok' => false, 'error' => 'wrong email or password'];
+            }
+            $a = $data['accounts'][$i];
+            if (($a['lock_until'] ?? 0) > time()) {
+                return ['ok' => false, 'error' => 'locked', 'waitSeconds' => $a['lock_until'] - time()];
+            }
+            if (!password_verify($password, $a['pass_hash'] ?? '')) {
+                $a['fail_count'] = ($a['fail_count'] ?? 0) + 1;
+                if ($a['fail_count'] >= LOGIN_MAX_FAILS) {
+                    $a['lock_until'] = time() + LOGIN_LOCKOUT_SECONDS;
+                    $a['fail_count'] = 0;
+                }
+                $data['accounts'][$i] = $a;
+                save_accounts($data);
+                return ['ok' => false, 'error' => 'wrong email or password'];
+            }
+            $a['fail_count'] = 0;
+            $a['lock_until'] = 0;
+            $data['accounts'][$i] = $a;
+            save_accounts($data);
+            return ['ok' => true, 'id' => $a['id'], 'family' => $a['family'] ?? ''];
+        });
+        if (!($result['ok'] ?? false)) { respond($result, 401); }
+        $token = issue_session($result['id']);
+        respond(['ok' => true, 'auth' => $token,
+                 'account' => ['id' => $result['id'], 'email' => $email, 'family' => $result['family']]]);
+    }
+
+    case 'logout': {
+        drop_session($body['auth'] ?? null);
+        respond(['ok' => true]);
+    }
+
+    case 'me': {
+        // require_account() already ran — report who this session belongs to
+        global $ACCT;
+        $data = load_accounts();
+        foreach ($data['accounts'] as $a) {
+            if (($a['id'] ?? '') === $ACCT) {
+                respond(['ok' => true,
+                         'account' => ['id' => $a['id'], 'email' => $a['email'], 'family' => $a['family'] ?? '']]);
+            }
+        }
+        fail('sign-in required', 401);
+    }
+
+    case 'reset-request': {
+        throttle_check('reset', 5, 3600);
+        $email = clean_email((string)($body['email'] ?? ''));
+        if ($email !== null) {
+            $code = str_pad((string)random_int(0, 999999), 6, '0', STR_PAD_LEFT);
+            $codeHash = password_hash($code, PASSWORD_DEFAULT);
+            $found = with_accounts_lock(function () use ($email, $codeHash) {
+                $data = load_accounts();
+                $i = find_account($data, $email);
+                if ($i === null) { return false; }
+                $data['accounts'][$i]['reset'] = [
+                    'hash' => $codeHash, 'exp' => time() + RESET_CODE_TTL, 'tries' => 0,
+                ];
+                save_accounts($data);
+                return true;
+            });
+            if ($found) {
+                $host = preg_replace('/[^a-z0-9.\-]/i', '', $_SERVER['HTTP_HOST'] ?? 'localhost');
+                @mail($email, 'Spelgram 3000 — your password reset code',
+                    "Hi!\n\nYour Spelgram 3000 reset code is: {$code}\n\n"
+                    . "Enter it on the sign-in screen within 15 minutes to choose a new password.\n"
+                    . "If you didn't ask for this, you can safely ignore this email.\n",
+                    'From: no-reply@' . $host);
+            }
+        }
+        // always the same answer — never reveal whether an email has an account
+        respond(['ok' => true, 'sent' => true]);
+    }
+
+    case 'reset-confirm': {
+        throttle_check('reset', 10, 3600);
+        $email = clean_email((string)($body['email'] ?? ''));
+        $code = trim((string)($body['code'] ?? ''));
+        $password = (string)($body['password'] ?? '');
+        if ($email === null || !preg_match('/^[0-9]{6}$/', $code)) {
+            fail('that code isn\'t right — check the email and try again', 401);
+        }
+        if (!valid_password($password)) { fail('the new password needs at least 8 characters'); }
+        $hash = password_hash($password, PASSWORD_DEFAULT);
+        $result = with_accounts_lock(function () use ($email, $code, $hash) {
+            $data = load_accounts();
+            $i = find_account($data, $email);
+            $reset = $i === null ? null : ($data['accounts'][$i]['reset'] ?? null);
+            if (!is_array($reset) || ($reset['exp'] ?? 0) <= time()) {
+                return ['ok' => false, 'error' => 'that code has expired — request a new one'];
+            }
+            if (($reset['tries'] ?? 0) >= RESET_MAX_TRIES) {
+                unset($data['accounts'][$i]['reset']);
+                save_accounts($data);
+                return ['ok' => false, 'error' => 'too many tries — request a new code'];
+            }
+            if (!password_verify($code, $reset['hash'] ?? '')) {
+                $data['accounts'][$i]['reset']['tries'] = ($reset['tries'] ?? 0) + 1;
+                save_accounts($data);
+                return ['ok' => false, 'error' => 'that code isn\'t right — check the email and try again'];
+            }
+            unset($data['accounts'][$i]['reset']);
+            $data['accounts'][$i]['pass_hash'] = $hash;
+            $data['accounts'][$i]['fail_count'] = 0;
+            $data['accounts'][$i]['lock_until'] = 0;
+            save_accounts($data);
+            return ['ok' => true, 'id' => $data['accounts'][$i]['id'],
+                    'family' => $data['accounts'][$i]['family'] ?? ''];
+        });
+        if (!($result['ok'] ?? false)) { respond($result, 401); }
+        drop_account_sessions($result['id']); // a stolen password stops working everywhere
+        $token = issue_session($result['id']);
+        respond(['ok' => true, 'auth' => $token,
+                 'account' => ['id' => $result['id'], 'email' => $email, 'family' => $result['family']]]);
+    }
 
     /* ---------------- Word Lab ---------------- */
 

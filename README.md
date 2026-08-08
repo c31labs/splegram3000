@@ -3,15 +3,29 @@
 A gamified spelling & grammar adventure for Australian students in **Years 5–7**,
 aligned to the Australian Curriculum and NAPLAN Language Conventions.
 
-**Version 3.0** — Years 5–7, the Word Lab, and a parent zone.
+**Version 3.1** — now with **family accounts**, so one public install can serve
+many families, each fully separate.
+
+<p align="center">
+  <img src="docs/screenshot-signin.png" width="49%" alt="The family sign-in screen">
+  <img src="docs/screenshot-home.png" width="49%" alt="A child's home screen with the 12-level map">
+</p>
 
 ## What's inside
+
+- **Family accounts**: parents create a free account (family name + email +
+  password) and stay signed in for 30 days per device. Every family's players,
+  progress, parent code and Word Lab live in their own isolated folder on the
+  server — no family can ever see another family's kids or stats. Password
+  reset works by emailed 6-digit code. Kids **never** need an email or
+  password: once the family is signed in, they just tap their name.
 
 - **12 levels** ramping from Year 3 foundations (gentle catch-up) through Year 5/6
   to Year 7 mastery — so the app grows with each child through primary into
   high school.
 - **Family profiles**: a "Who's playing?" screen; every child's XP, stars,
-  streaks and badges are saved on your hosting and follow them to any device.
+  streaks and badges are saved on your hosting and follow them to any device
+  the family signs in on.
 - **960 core questions** (720 spelling + 240 grammar), every one academically
   verified, plus a **reservoir of 400 bonus items** unlocked through play —
   1,360 in total, with every target word unique across the whole game.
@@ -55,25 +69,55 @@ protected `server-data/` folder the app creates itself.
    api.php
    css/  js/  data/
    ```
-4. Visit the URL. First visit to the **Parent zone** asks you to create your
-   parent code.
+4. Visit the URL and create your own family account — you're the first user,
+   nothing special to configure. First visit to the **Parent zone** asks you
+   to create your family's parent code.
 5. Optional: in the parent zone, paste an Anthropic API key (create one at
-   console.anthropic.com) to turn on AI-generated refreshes. The default
-   model is `claude-opus-5` (highest quality); a refresh costs roughly
-   US$0.30–0.60. The key is stored server-side only and never shown again.
+   console.anthropic.com) to turn on AI-generated refreshes **for your own
+   family**. The default model is `claude-opus-5` (highest quality); a refresh
+   costs roughly US$0.30–0.60. The key is stored server-side only, never shown
+   again, and only ever used for the family that configured it — other
+   families' Word Labs draw from the free built-in vault unless they add a
+   key of their own.
 
 Health check: `yoursite.com/spelgram/api.php?action=ping` → `{"ok":true,...}`.
 
+### Sharing it publicly
+
+The link is now safe to put on your website: every visitor family registers
+their own account and gets a private slice of the server. What keeps the
+shared host healthy:
+
+- Sign-ups are capped at **500 families** (`MAX_ACCOUNTS` in `api.php`), each
+  with up to 20 players and a 256 KB cap per save file.
+- Auth endpoints are rate-limited per IP (5 sign-ups and 30 login attempts an
+  hour), accounts lock for 10 minutes after 8 wrong passwords, and reset codes
+  expire after 15 minutes.
+- Session tokens are stored hashed and expire after 30 days without use.
+
+**Password reset needs PHP `mail()`** — standard on GoDaddy hosting. Codes
+are sent from `no-reply@your-domain`. If your host can't send mail, a
+locked-out parent can't self-recover (nothing else breaks) — you can delete
+their entry from `server-data/accounts.json` so they can re-register, though
+their kids' progress folder would then be orphaned.
+
 ### Good to know
 
-- **Backups**: download the `server-data/` folder occasionally — it holds all
-  player progress, the parent code hash, and unlocked bonus words.
-- **Privacy**: first names only, no emails, no passwords for kids. Don't share
-  the link publicly. The parent code gates management and settings, not play.
-- **Deleting/renaming players** now lives in the parent zone.
-- **Word Lab cost control**: without an API key there is zero cost, forever.
-  With a key, kids can trigger at most 4 refreshes a day (6-hour cooldown).
-  Remove the key anytime with the Clear button.
+- **Backups**: download the `server-data/` folder occasionally — it holds
+  every family's accounts, player progress, parent code hashes, and unlocked
+  bonus words.
+- **Privacy**: kids are first names + avatar only — no email, no password, no
+  tracking. Parents' emails are used solely for sign-in and password reset.
+  Each family's parent code gates its own management screens, not play.
+- **Deleting/renaming players** lives in the parent zone.
+- **Word Lab cost control**: without an API key there is zero cost, forever —
+  for you and for every family that signs up. A family that adds its own key
+  can trigger at most 4 refreshes a day (6-hour cooldown per family). Remove
+  a key anytime with the Clear button.
+- **Upgrading from v3.0** (single-family): the server layout changed from one
+  shared data folder to per-account folders. Register your account first, then
+  move your old `server-data/profiles.json`, `save_*.json`, `config.json` and
+  `extra-bank.json` into your new `server-data/accounts/<id>/` folder.
 
 ## Local preview
 
@@ -87,7 +131,8 @@ Then http://localhost:8642 (PHP's built-in server runs the app and the API).
 
 - `data/spelling-*.js`, `data/grammar-*.js` — core banks, tagged by level 1–12.
 - `data/reservoir-*.json` — locked bonus items the Word Lab unlocks over time.
-- `server-data/extra-bank.json` — items unlocked or AI-generated so far.
+- `server-data/accounts/<id>/extra-bank.json` — items a family has unlocked or
+  AI-generated so far.
 
 Add your own items to any bank following the existing shape — the engine picks
 them up automatically.

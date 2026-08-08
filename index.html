@@ -19,6 +19,45 @@
 
   <div id="app">
 
+    <!-- ============ FAMILY SIGN IN ============ -->
+    <section id="screen-auth" class="screen" hidden>
+      <div class="profiles-wrap">
+        <div class="profiles-logo">🔮</div>
+        <h1 class="profiles-title">Spelgram <em>3000</em></h1>
+        <div class="card auth-card">
+          <h2 id="auth-title">Family sign-in</h2>
+          <p class="auth-sub" id="auth-sub">One free account per family — then every child gets their own player.</p>
+          <label class="auth-label" id="auth-family-wrap" hidden>Family name
+            <input type="text" id="auth-family" maxlength="40" autocomplete="off" placeholder="e.g. The Taylors">
+          </label>
+          <label class="auth-label" id="auth-email-wrap">Email
+            <input type="email" id="auth-email" maxlength="120" autocomplete="email" placeholder="you@example.com">
+          </label>
+          <label class="auth-label" id="auth-code-wrap" hidden>Reset code (check your email)
+            <input type="text" id="auth-code" maxlength="6" inputmode="numeric" autocomplete="one-time-code" placeholder="6-digit code">
+          </label>
+          <label class="auth-label" id="auth-password-wrap">Password
+            <input type="password" id="auth-password" maxlength="200" autocomplete="current-password" placeholder="At least 8 characters">
+          </label>
+          <p class="auth-error" id="auth-error" hidden></p>
+          <button id="btn-auth-go" class="btn btn-primary btn-wide">Sign in</button>
+          <div class="auth-links">
+            <button type="button" class="linklike" id="btn-auth-toggle">New here? Create your family account</button>
+            <button type="button" class="linklike" id="btn-auth-forgot">Forgot your password?</button>
+          </div>
+          <div id="auth-offline" hidden>
+            <p class="profiles-offline">📴 Can't reach the server right now.</p>
+            <div class="auth-offline-actions">
+              <button id="btn-auth-retry" class="btn btn-ghost btn-sm">🔄 Try again</button>
+              <button id="btn-auth-device" class="btn btn-ghost btn-sm">Play on this device only</button>
+            </div>
+          </div>
+        </div>
+        <p class="auth-privacy">Kids never need an email or password — they just pick their name.<br>
+          Your email is only used to sign in and reset your password.</p>
+      </div>
+    </section>
+
     <!-- ============ WHO'S PLAYING? ============ -->
     <section id="screen-profiles" class="screen" hidden>
       <div class="profiles-wrap">
@@ -32,6 +71,9 @@
           📴 Offline mode — progress will be kept on this device only.
         </p>
         <button id="btn-parent-zone" class="parent-link">👪 Parent zone · stats, rename &amp; delete players</button>
+        <p class="family-line" id="family-line" hidden>
+          <span id="family-label"></span> · <button type="button" class="linklike" id="btn-signout">Sign out</button>
+        </p>
       </div>
     </section>
 
