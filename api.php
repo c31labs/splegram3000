@@ -139,6 +139,60 @@ function valid_password(string $pw): bool {
     return $len >= 8 && $len <= 200;
 }
 
+/* ---------------- outbound email (Brevo, mail() as fallback) ---------------- */
+
+/**
+ * Site-wide mail settings live in server-data/mail.json (web-blocked, not in git):
+ *   {"brevo_key": "xkeysib-...", "from_email": "no-reply@your-domain", "from_name": "Spelgram 3000"}
+ * from_email must be a sender address (or domain) verified in the Brevo account.
+ */
+function load_mail_config(): array {
+    $raw = @file_get_contents(DATA_DIR . '/mail.json');
+    $data = $raw === false ? null : json_decode($raw, true);
+    return is_array($data) ? $data : [];
+}
+
+function send_reset_email(string $to, string $code): void {
+    $subject = 'Spelgram 3000 — your password reset code';
+    $text = "Hi!\n\nYour Spelgram 3000 reset code is: {$code}\n\n"
+        . "Enter it on the sign-in screen within 15 minutes to choose a new password.\n"
+        . "If you didn't ask for this, you can safely ignore this email.\n";
+    $host = preg_replace('/[^a-z0-9.\-]/i', '', $_SERVER['HTTP_HOST'] ?? 'localhost');
+
+    $cfg = load_mail_config();
+    $key = $cfg['brevo_key'] ?? null;
+    if (is_string($key) && $key !== '') {
+        $from = clean_email((string)($cfg['from_email'] ?? '')) ?? ('no-reply@' . $host);
+        $name = trim((string)($cfg['from_name'] ?? ''));
+        $payload = [
+            'sender' => ['name' => $name !== '' ? $name : 'Spelgram 3000', 'email' => $from],
+            'to' => [['email' => $to]],
+            'subject' => $subject,
+            'textContent' => $text,
+        ];
+        $ch = curl_init('https://api.brevo.com/v3/smtp/email');
+        curl_setopt_array($ch, [
+            CURLOPT_RETURNTRANSFER => true,
+            CURLOPT_POST => true,
+            CURLOPT_TIMEOUT => 20,
+            CURLOPT_HTTPHEADER => [
+                'api-key: ' . $key,
+                'accept: application/json',
+                'content-type: application/json',
+            ],
+            CURLOPT_POSTFIELDS => json_encode($payload, JSON_UNESCAPED_UNICODE),
+        ]);
+        $raw = curl_exec($ch);
+        $status = curl_getinfo($ch, CURLINFO_RESPONSE_CODE);
+        if ($status >= 200 && $status < 300) { return; }
+        // the API response never reveals mail trouble, so it must reach the error log
+        error_log('spelgram send_reset_email: brevo status=' . $status
+            . ' body=' . (is_string($raw) ? substr($raw, 0, 300) : '(curl error)'));
+    }
+    // no Brevo key configured, or Brevo rejected the send — try the host's mail()
+    @mail($to, $subject, $text, 'From: no-reply@' . $host);
+}
+
 /**
  * Per-IP sliding-window rate limit for the auth endpoints. File-based like
  * everything else; fails the request with 429 when the window is full.
@@ -553,7 +607,8 @@ function claude_generate(array $levels, array $config, array $knownWords): ?arra
     ]);
     $raw = curl_exec($ch);
     $status = curl_getinfo($ch, CURLINFO_RESPONSE_CODE);
-    curl_close($ch);
+    // no curl_close(): a no-op since PHP 8.0 and a deprecation warning on 8.5+
+    // that would leak HTML into the JSON response
     if (!is_string($raw) || $status !== 200) { return null; }
 
     $res = json_decode($raw, true);
@@ -729,12 +784,7 @@ switch ($action) {
                 return true;
             });
             if ($found) {
-                $host = preg_replace('/[^a-z0-9.\-]/i', '', $_SERVER['HTTP_HOST'] ?? 'localhost');
-                @mail($email, 'Spelgram 3000 — your password reset code',
-                    "Hi!\n\nYour Spelgram 3000 reset code is: {$code}\n\n"
-                    . "Enter it on the sign-in screen within 15 minutes to choose a new password.\n"
-                    . "If you didn't ask for this, you can safely ignore this email.\n",
-                    'From: no-reply@' . $host);
+                send_reset_email($email, $code);
             }
         }
         // always the same answer — never reveal whether an email has an account

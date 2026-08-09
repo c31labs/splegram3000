@@ -95,11 +95,28 @@ shared host healthy:
   expire after 15 minutes.
 - Session tokens are stored hashed and expire after 30 days without use.
 
-**Password reset needs PHP `mail()`** — standard on GoDaddy hosting. Codes
-are sent from `no-reply@your-domain`. If your host can't send mail, a
-locked-out parent can't self-recover (nothing else breaks) — you can delete
-their entry from `server-data/accounts.json` so they can re-register, though
-their kids' progress folder would then be orphaned.
+**Password reset emails go out via [Brevo](https://www.brevo.com)** (free
+tier is plenty). Create `server-data/mail.json` on the server:
+
+```json
+{
+  "brevo_key": "xkeysib-your-api-key",
+  "from_email": "no-reply@your-domain",
+  "from_name": "Spelgram 3000"
+}
+```
+
+- `brevo_key`: Brevo → profile menu → **SMTP & API → API Keys** → *Generate
+  a new API key*.
+- `from_email` must be a sender verified in Brevo (**Senders, Domains &
+  Dedicated IPs**) — verifying your whole domain gives the best deliverability.
+
+Without `mail.json` (or if Brevo rejects a send — check the PHP error log
+for `spelgram send_reset_email`), the app falls back to PHP `mail()` from
+`no-reply@your-domain`. If neither works, a locked-out parent can't
+self-recover (nothing else breaks) — you can delete their entry from
+`server-data/accounts.json` so they can re-register, though their kids'
+progress folder would then be orphaned.
 
 ### Good to know
 
