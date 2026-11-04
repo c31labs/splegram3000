@@ -149,9 +149,15 @@
   }
 
   /* ---- format renderers ---- */
+  /* the word is blanked in the raw sentence, then each side is escaped: item text
+     can come from the server (Word Lab), so nothing of it reaches innerHTML raw */
   function blankSentence(sentence, word) {
-    const re = new RegExp('\\b' + word.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '\\b', 'i');
-    return sentence.replace(re, '<span class="blank">_____</span>');
+    const text = String(sentence || '');
+    const re = new RegExp('\\b' + String(word || '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '\\b', 'i');
+    const m = text.match(re);
+    if (!m) return escapeHtml(text);
+    return escapeHtml(text.slice(0, m.index)) + '<span class="blank">_____</span>' +
+      escapeHtml(text.slice(m.index + m[0].length));
   }
 
   function renderListen(q, body) {
@@ -163,7 +169,7 @@
         '<button class="btn btn-ghost btn-sm" id="btn-say-slow">🐢 Slowly</button>' +
       '</div>' +
       '<p class="q-sentence">' + blankSentence(q.item.sentence, q.item.word) + '</p>' +
-      '<p class="q-clue">Clue: ' + q.item.definition + '</p>' +
+      '<p class="q-clue">Clue: ' + escapeHtml(q.item.definition) + '</p>' +
       '<input type="text" id="answer-input" class="answer-input" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="Type the word here">';
     $('btn-say-word').addEventListener('click', function () { E.Speech.say(q.item.word); });
     $('btn-say-sentence').addEventListener('click', function () { E.Speech.say(q.item.sentence, 0.95); });
@@ -181,7 +187,7 @@
     body.innerHTML =
       '<p class="q-prompt">Which spelling is correct?</p>' +
       '<p class="q-sentence">' + blankSentence(q.item.sentence, q.item.word) + '</p>' +
-      '<p class="q-clue">Clue: ' + q.item.definition + '</p>' +
+      '<p class="q-clue">Clue: ' + escapeHtml(q.item.definition) + '</p>' +
       '<div class="options" id="options"></div>';
     renderOptions(q.options);
   }
@@ -190,9 +196,9 @@
     let html = '<p class="q-prompt">One word is spelled wrongly. Tap it, then fix it!</p><p class="q-sentence proofread-sentence">';
     q.words.forEach(function (w, i) {
       if (q.clickable.indexOf(i) !== -1) {
-        html += '<button class="pr-word" data-i="' + i + '">' + w + '</button> ';
+        html += '<button class="pr-word" data-i="' + (Number(i) || 0) + '">' + escapeHtml(w) + '</button> ';
       } else {
-        html += '<span>' + w + '</span> ';
+        html += '<span>' + escapeHtml(w) + '</span> ';
       }
     });
     html += '</p><div id="pr-fix" hidden>' +
@@ -218,9 +224,9 @@
 
   function renderGrammar(q, body) {
     const it = q.item;
-    let html = '<p class="q-prompt">' + it.prompt + '</p>';
+    let html = '<p class="q-prompt">' + escapeHtml(it.prompt) + '</p>';
     if (it.sentence) {
-      html += '<p class="q-sentence">' + it.sentence.replace('___', '<span class="blank">_____</span>') + '</p>';
+      html += '<p class="q-sentence">' + escapeHtml(it.sentence).replace('___', '<span class="blank">_____</span>') + '</p>';
     }
     html += '<div class="options' + (it.format === 'sentence-choice' ? ' options-stack' : '') + '" id="options"></div>';
     body.innerHTML = html;
@@ -329,10 +335,10 @@
       head.textContent = '🎉 ' + E.pickRandom(PRAISE) + '  +' + gained + ' XP';
       head.className = 'feedback-head good';
       if (it.kind === 'spelling') {
-        body.innerHTML = '<p><b class="word-glow">' + it.word + '</b> — ' + it.definition + '</p>' +
-          '<p class="rule-chip">📏 ' + it.hint + '</p>';
+        body.innerHTML = '<p><b class="word-glow">' + escapeHtml(it.word) + '</b> — ' + escapeHtml(it.definition) + '</p>' +
+          '<p class="rule-chip">📏 ' + escapeHtml(it.hint) + '</p>';
       } else {
-        body.innerHTML = '<p>' + it.explanation + '</p>';
+        body.innerHTML = '<p>' + escapeHtml(it.explanation) + '</p>';
       }
     } else {
       E.SFX.play('wrong');
@@ -347,12 +353,12 @@
           }
         }
         body.innerHTML = extra +
-          '<p>The correct spelling is <b class="word-glow">' + it.word + '</b> — ' + it.definition + '</p>' +
-          '<p class="rule-chip">📏 ' + it.hint + '</p>' +
-          '<p class="try-say">Try saying it: <b>' + syllableise(it.word) + '</b></p>';
+          '<p>The correct spelling is <b class="word-glow">' + escapeHtml(it.word) + '</b> — ' + escapeHtml(it.definition) + '</p>' +
+          '<p class="rule-chip">📏 ' + escapeHtml(it.hint) + '</p>' +
+          '<p class="try-say">Try saying it: <b>' + escapeHtml(syllableise(it.word)) + '</b></p>';
       } else {
         body.innerHTML = '<p>The answer is <b class="word-glow">' + escapeHtml(it.options[it.answer]) + '</b></p>' +
-          '<p class="rule-chip">📏 ' + it.explanation + '</p>';
+          '<p class="rule-chip">📏 ' + escapeHtml(it.explanation) + '</p>';
       }
     }
     $('btn-next').textContent = (qIndex + 1 >= session.questions.length) ? 'See results 🏁' : 'Next ➜';
@@ -362,12 +368,12 @@
   }
 
   function escapeHtml(s) {
-    return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+    return String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
       .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
   }
   function syllableise(word) {
     /* naive chunking for "say it in chunks" support */
-    return word.replace(/([aeiouy]+[^aeiouy\s]*)/gi, '$1·').replace(/·$/, '').replace(/·'/g, "'");
+    return String(word || '').replace(/([aeiouy]+[^aeiouy\s]*)/gi, '$1·').replace(/·$/, '').replace(/·'/g, "'");
   }
 
   function nextQuestion() {
@@ -496,13 +502,14 @@
     const grid = $('profile-grid');
     grid.innerHTML = '';
     profiles.forEach(function (p) {
+      /* p.summary comes straight from the server, so coerce it here as well */
       const sum = p.summary || E.Profiles.summaryOf(E.Profiles.peekSave(p.id));
       const card = document.createElement('button');
       card.className = 'profile-card';
       card.innerHTML =
-        '<span class="profile-avatar">' + p.avatar + '</span>' +
+        '<span class="profile-avatar">' + escapeHtml(p.avatar) + '</span>' +
         '<b>' + escapeHtml(p.name) + '</b>' +
-        '<small>⭐ ' + sum.stars + ' · ✨ ' + sum.xp + ' XP</small>';
+        '<small>⭐ ' + (Number(sum.stars) || 0) + ' · ✨ ' + (Number(sum.xp) || 0) + ' XP</small>';
       card.addEventListener('click', function () {
         E.SFX.play('click');
         /* freeze the whole picker so a second tap can't cross-load another profile */
@@ -600,7 +607,7 @@
     $('wordlab-progress').hidden = false;
     $('brew-fill').style.width = '4%';
     $('brew-pct').textContent = '0%';
-    let added = 0, merged = 0, msgIdx = 0, failed = false;
+    let added = 0, merged = 0, msgIdx = 0, failed = false, stopMsg = '';
     const msgTimer = setInterval(function () {
       msgIdx = (msgIdx + 1) % BREW_MSGS.length;
       $('brew-msg').textContent = BREW_MSGS[msgIdx];
@@ -611,14 +618,16 @@
         if (parentToken) payload.parentToken = parentToken;
         /* each step takes at least a beat, so the cauldron feels properly magical */
         const results = await Promise.all([
-          E.Net.api('refresh-step', payload, 120000),
+          E.Net.apiRaw('refresh-step', payload, 120000),
           new Promise(function (r) { setTimeout(r, 1100); }),
         ]);
         const res = results[0];
-        if (!res) {
-          if (step === 1) failed = true;
+        if (!res || !res.ok) {
+          /* any refusal stops the brew; the server's reason picks the message */
+          failed = true;
+          stopMsg = brewStopMessage(res && res.error);
         } else {
-          added += res.added || 0;
+          added += Number(res.added) || 0;
         }
         const pct = Math.round((step / 4) * 100);
         $('brew-fill').style.width = pct + '%';
@@ -638,15 +647,24 @@
       $('lab-done-title').textContent = '🎉 Fresh words delivered!';
       $('lab-done-msg').textContent = added + ' brand-new questions just joined your levels. ' +
         (merged > 0 ? 'The game has reshuffled itself — go find them!'
-                    : 'They\'ll appear the next time the game loads!');
+                    : 'They\'ll appear the next time the game loads!') +
+        (failed ? ' ' + stopMsg : ''); /* a later step was refused: say why */
     } else if (failed) {
       $('lab-done-title').textContent = '⏳ Not just yet!';
-      $('lab-done-msg').textContent = 'The cauldron needs a rest. Come back a bit later!';
+      $('lab-done-msg').textContent = stopMsg;
     } else {
       $('lab-done-title').textContent = '🧙 All brewed out!';
       $('lab-done-msg').textContent = 'Every word in the vault is already unlocked. Ask a grown-up to open the Parent zone for more magic.';
     }
     return added;
+  }
+
+  /* why the cauldron stopped, in words a child can read */
+  function brewStopMessage(error) {
+    if (error === 'busy') return 'The cauldron is already brewing for someone else. Try again in a few minutes.';
+    if (error === 'daily-limit') return 'The cauldron has done all it can for today. Come back tomorrow for more!';
+    if (error === 'that step has already run') return 'That batch has already been brewed. Close the Word Lab and open it again to see what is new.';
+    return 'The cauldron needs a rest. Come back a bit later!';
   }
 
   /* ---------------- parent zone: PIN pad ---------------- */
@@ -660,27 +678,47 @@
       this.token = '';
       if (old) E.Net.api('parent-logout', { token: old }); /* invalidate server-side too */
     },
+    /* same thing from pagehide, where a fetch may never leave the tab */
+    lockBeacon: function () {
+      const old = this.token;
+      this.token = '';
+      if (old) E.Net.beacon('parent-logout', { token: old });
+    },
   };
-  let pinEntry = '', pinFirst = null, pinMode = 'login', pinOnSuccess = null;
+  /* new codes are 6 to 8 digits; sign-in still accepts the older 4-digit ones */
+  const PIN_MIN_NEW = 6, PIN_MIN_LOGIN = 4, PIN_MAX = 8;
+  const PIN_DIGITS = /^[0-9]{6,8}$/;
+  let pinEntry = '', pinFirst = null, pinCurrent = null, pinMode = 'login', pinOnSuccess = null;
+
+  function pinStage() {
+    /* 'current' = asking for the existing code; 'new' = choosing one; 'login' */
+    if (pinMode === 'login') return 'login';
+    if (pinMode === 'change' && pinCurrent === null) return 'current';
+    return 'new';
+  }
 
   function renderPinDots() {
     const dots = $('pin-dots');
+    const min = pinStage() === 'new' ? PIN_MIN_NEW : PIN_MIN_LOGIN;
     dots.innerHTML = '';
-    for (let i = 0; i < 8; i++) {
+    for (let i = 0; i < PIN_MAX; i++) {
       if (i < pinEntry.length) { dots.innerHTML += '<span class="pd on">●</span>'; }
-      else if (i < 4) { dots.innerHTML += '<span class="pd">○</span>'; }
+      else if (i < min) { dots.innerHTML += '<span class="pd">○</span>'; }
     }
   }
 
+  function pinChooseText() { return 'Choose a 6 to 8 digit code only grown-ups know.'; }
+
   function openPinModal(mode, onSuccess) {
     pinMode = mode; pinOnSuccess = onSuccess;
-    pinEntry = ''; pinFirst = null;
+    pinEntry = ''; pinFirst = null; pinCurrent = null;
     $('pin-error').hidden = true;
     $('pin-title').textContent = mode === 'login' ? '🔒 Parent zone'
       : mode === 'change' ? '🔐 Change the parent code' : '🔐 Create a parent code';
-    $('pin-sub').textContent = mode === 'login'
-      ? 'Enter your parent code (4–8 digits).'
-      : 'Choose a 4–8 digit code only grown-ups know.';
+    $('pin-sub').textContent = mode === 'login' ? 'Enter your parent code.'
+      : mode === 'change' ? 'First, enter your current parent code.'
+      : pinChooseText();
+    showPinReset(false); /* also shows the "forgot" link in login mode only */
     renderPinDots();
     const pad = $('pin-pad');
     if (!pad.childElementCount) {
@@ -700,12 +738,14 @@
     $('pin-error').hidden = true;
     if (k === '⌫') { pinEntry = pinEntry.slice(0, -1); renderPinDots(); return; }
     if (k !== '✓') {
-      if (pinEntry.length < 8) pinEntry += k;
+      if (pinEntry.length < PIN_MAX) pinEntry += k;
       renderPinDots();
       return;
     }
-    if (pinEntry.length < 4) { showPinError('The code needs at least 4 digits.'); return; }
-    if (pinMode === 'login') {
+    const stage = pinStage();
+    if (stage === 'new' && pinEntry.length < PIN_MIN_NEW) { showPinError('A new code needs at least 6 digits.'); return; }
+    if (stage !== 'new' && pinEntry.length < PIN_MIN_LOGIN) { showPinError('The code needs at least 4 digits.'); return; }
+    if (stage === 'login') {
       const res = await E.Net.api('parent-login', { pin: pinEntry });
       if (res && res.token) {
         Parent.token = res.token;
@@ -717,7 +757,13 @@
       }
       return;
     }
-    /* setup / change: ask twice */
+    /* change: the current code comes first, then the new one twice */
+    if (stage === 'current') {
+      pinCurrent = pinEntry; pinEntry = '';
+      $('pin-sub').textContent = pinChooseText();
+      renderPinDots();
+      return;
+    }
     if (pinFirst === null) {
       pinFirst = pinEntry; pinEntry = '';
       $('pin-sub').textContent = 'Type the same code again to confirm.';
@@ -725,21 +771,27 @@
       return;
     }
     if (pinFirst !== pinEntry) {
-      showPinError('The codes didn\'t match — start again.');
+      showPinError('The codes didn\'t match. Start again.');
       pinFirst = null; pinEntry = '';
-      $('pin-sub').textContent = 'Choose a 4–8 digit code only grown-ups know.';
+      $('pin-sub').textContent = pinChooseText();
       renderPinDots();
       return;
     }
     const action = pinMode === 'setup' ? 'parent-setup' : 'parent-change-pin';
-    const payload = pinMode === 'setup' ? { pin: pinEntry } : { token: Parent.token, newPin: pinEntry };
-    const res = await E.Net.api(action, payload);
-    if (res) {
+    const payload = pinMode === 'setup' ? { pin: pinEntry } : { token: Parent.token, current: pinCurrent, pin: pinEntry };
+    const res = await E.Net.apiRaw(action, payload);
+    if (res && res.ok) {
       if (res.token) Parent.token = res.token;
       closeModal('modal-pin');
       if (pinOnSuccess) pinOnSuccess();
+    } else if (pinMode === 'change' && res && !res.ok) {
+      /* most likely the current code was wrong; begin again from that step */
+      showPinError('That did not work. Check your current code and try again.');
+      pinFirst = null; pinEntry = ''; pinCurrent = null;
+      $('pin-sub').textContent = 'First, enter your current parent code.';
+      renderPinDots();
     } else {
-      showPinError('Something went wrong — try again.');
+      showPinError('Something went wrong. Try again.');
       pinFirst = null; pinEntry = ''; renderPinDots();
     }
   }
@@ -747,6 +799,51 @@
   function showPinError(msg) {
     $('pin-error').textContent = msg;
     $('pin-error').hidden = false;
+  }
+
+  /* forgotten code: the family password proves it is a grown-up, then a new code is set */
+  function showPinReset(on) {
+    $('pin-entry').hidden = on;
+    $('pin-reset').hidden = !on;
+    $('btn-pin-forgot').hidden = on || pinMode !== 'login';
+    $('pin-error').hidden = true;
+    if (on) {
+      $('pin-title').textContent = '🔐 Reset the parent code';
+      $('pin-sub').textContent = 'Enter the family password and choose a new 6 to 8 digit code.';
+      $('pin-reset-password').value = '';
+      $('pin-reset-code').value = '';
+      $('pin-reset-password').focus();
+    }
+  }
+
+  async function submitPinReset() {
+    const password = $('pin-reset-password').value;
+    const pin = $('pin-reset-code').value.trim();
+    if (!password) { showPinError('Enter the family password first.'); return; }
+    if (!PIN_DIGITS.test(pin)) { showPinError('The new code must be 6 to 8 digits.'); return; }
+    const btn = $('btn-pin-reset-go');
+    btn.disabled = true;
+    try {
+      const res = await E.Net.apiRaw('parent-reset-pin', { password: password, pin: pin });
+      $('pin-reset-password').value = '';
+      $('pin-reset-code').value = '';
+      if (!res) { showPinError('Could not reach the server. Try again in a moment.'); return; }
+      if (!res.ok) { showPinError('That did not work. Check the family password and try again.'); return; }
+      if (res.token) {
+        Parent.token = res.token;
+        closeModal('modal-pin');
+        if (pinOnSuccess) pinOnSuccess();
+        return;
+      }
+      /* back to the pad with the new code */
+      pinEntry = '';
+      showPinReset(false);
+      $('pin-title').textContent = '🔒 Parent zone';
+      $('pin-sub').textContent = 'Your new code is set. Enter it to continue.';
+      renderPinDots();
+    } finally {
+      btn.disabled = false;
+    }
   }
 
   /* re-verify the parent token before an authenticated action; re-login if expired.
@@ -784,8 +881,14 @@
       : '';
     const pstat = await E.Net.api('parent-status');
     $('magic-key-state').textContent = pstat && pstat.aiConfigured
-      ? '✅ Key configured — Word Lab writes brand-new questions with AI'
+      ? (pstat.keyProblem
+          ? '⚠️ Key configured, but the last generation failed with the saved key. It may be invalid or out of credit.'
+          : '✅ Key configured — Word Lab writes brand-new questions with AI')
       : 'No key set — Word Lab unlocks from the built-in vault';
+    $('account-line').textContent = 'Signed in as ' + (E.Auth.email || 'this family') +
+      (E.Auth.family ? ' (' + E.Auth.family + ')' : '') + '.';
+    $('pw-error').hidden = true;
+    $('pw-ok').hidden = true;
 
     const profiles = await E.Profiles.list();
     const cards = [];
@@ -818,12 +921,13 @@
     const strands = {};
     Object.keys(seen).forEach(function (id) {
       const info = seen[id] || {};
-      const n = info.n || 0, w = info.w || 0;
+      /* the save comes from the server: coerce before anything is added or rendered */
+      const n = Number(info.n) || 0, w = Number(info.w) || 0;
       attempts += n; wrongs += w;
       const item = E.itemById(id);
       if (!item) return;
       if (w > 0 && item.kind === 'spelling') {
-        trouble.push({ word: item.word, pattern: item.pattern, level: item.level, w: w, n: n });
+        trouble.push({ word: item.word, pattern: item.pattern, level: Number(item.level) || 0, w: w, n: n });
       }
       if (item.kind === 'grammar') {
         const st = strands[item.strand] || { w: 0, n: 0 };
@@ -844,22 +948,24 @@
       .map(function (s) { return '<li>' + escapeHtml(s.k) + ' — ' + s.w + ' of ' + s.n + ' wrong</li>'; })
       .join('');
     const acc = attempts > 0 ? Math.round(((attempts - wrongs) / attempts) * 100) : null;
-    const rank = E.rankFor((save && save.xp) || 0);
+    const rank = E.rankFor(Number(save && save.xp) || 0);
+    const streak = Number(save && save.streak) || 0;
+    const pid = escapeHtml(p.id), pname = escapeHtml(p.name);
 
     return '<div class="card parent-child">' +
-      '<div class="pc-head"><span class="pc-avatar">' + p.avatar + '</span>' +
-      '<div><b>' + escapeHtml(p.name) + '</b><br><small>' + rank.icon + ' ' + rank.name + '</small></div>' +
-      '<div class="pc-nums">✨ ' + sum.xp + ' XP · ⭐ ' + sum.stars + ' · 🏅 ' + sum.badges +
+      '<div class="pc-head"><span class="pc-avatar">' + escapeHtml(p.avatar) + '</span>' +
+      '<div><b>' + pname + '</b><br><small>' + rank.icon + ' ' + rank.name + '</small></div>' +
+      '<div class="pc-nums">✨ ' + (Number(sum.xp) || 0) + ' XP · ⭐ ' + (Number(sum.stars) || 0) + ' · 🏅 ' + (Number(sum.badges) || 0) +
       (acc !== null ? ' · 🎯 ' + acc + '% correct (' + attempts + ' answers)' : ' · no answers yet') +
-      ((save && save.streak) ? ' · 🔥 ' + save.streak + '-day streak' : '') + '</div></div>' +
+      (streak ? ' · 🔥 ' + streak + '-day streak' : '') + '</div></div>' +
       (troubleRows
         ? '<h4>Words to practise</h4><table class="trouble-table"><tbody>' + troubleRows + '</tbody></table>'
         : '<p class="parent-note">No trouble words yet — nothing answered wrong. 🎉</p>') +
       (strandRows ? '<h4>Grammar to revisit</h4><ul class="strand-list">' + strandRows + '</ul>' : '') +
       '<div class="pc-actions no-print">' +
-      '<button class="btn btn-ghost btn-sm" data-pact="rename" data-pid="' + p.id + '" data-pname="' + escapeHtml(p.name) + '">✏️ Rename</button>' +
-      '<button class="btn btn-ghost btn-sm" data-pact="reset" data-pid="' + p.id + '" data-pname="' + escapeHtml(p.name) + '">🔄 Reset progress</button>' +
-      '<button class="btn btn-danger btn-sm" data-pact="delete" data-pid="' + p.id + '" data-pname="' + escapeHtml(p.name) + '">🗑️ Delete player</button>' +
+      '<button class="btn btn-ghost btn-sm" data-pact="rename" data-pid="' + pid + '" data-pname="' + pname + '">✏️ Rename</button>' +
+      '<button class="btn btn-ghost btn-sm" data-pact="reset" data-pid="' + pid + '" data-pname="' + pname + '">🔄 Reset progress</button>' +
+      '<button class="btn btn-danger btn-sm" data-pact="delete" data-pid="' + pid + '" data-pname="' + pname + '">🗑️ Delete player</button>' +
       '</div></div>';
   }
 
@@ -910,7 +1016,7 @@
   }
 
   /* ---------------- family sign-in screen ---------------- */
-  let authMode = 'login'; /* login | register | forgot | reset */
+  let authMode = 'login'; /* login | register | confirm | forgot | reset */
 
   const AUTH_MODES = {
     login: {
@@ -925,6 +1031,14 @@
       fields: { family: true, email: true, code: false, password: true },
       toggle: 'Already have an account? Sign in',
     },
+    /* after register: the server never says whether the address was new */
+    confirm: {
+      title: 'Check your email', btn: 'Confirm code',
+      sub: 'If this is a new address, we have emailed a code; if you already have an account, we have emailed you a reminder to sign in.',
+      fields: { family: false, email: true, code: true, password: false },
+      codeLabel: 'Code from the email',
+      toggle: 'Back to sign-in',
+    },
     forgot: {
       title: 'Reset your password', btn: 'Email me a code',
       sub: 'Tell us your account email and we\'ll send a 6-digit reset code.',
@@ -935,6 +1049,7 @@
       title: 'Choose a new password', btn: 'Set new password',
       sub: 'Enter the 6-digit code from the email and pick a new password.',
       fields: { family: false, email: true, code: true, password: true },
+      codeLabel: 'Reset code (check your email)',
       toggle: 'Back to sign-in',
     },
   };
@@ -948,6 +1063,7 @@
     $('auth-family-wrap').hidden = !m.fields.family;
     $('auth-email-wrap').hidden = !m.fields.email;
     $('auth-code-wrap').hidden = !m.fields.code;
+    $('auth-code-label').textContent = m.codeLabel || 'Reset code (check your email)';
     $('auth-password-wrap').hidden = !m.fields.password;
     $('auth-password').setAttribute('autocomplete', mode === 'login' ? 'current-password' : 'new-password');
     $('auth-password').placeholder = mode === 'login' ? 'Your password' : 'At least 8 characters';
@@ -977,7 +1093,7 @@
       showAuthError('Please enter your email address.');
       return;
     }
-    if (authMode !== 'forgot' && password.length < 8) {
+    if (authMode !== 'forgot' && authMode !== 'confirm' && password.length < 8) {
       showAuthError('The password needs at least 8 characters.');
       return;
     }
@@ -995,6 +1111,21 @@
           return;
         }
         res = await E.Auth.register(family, email, password);
+        if (res && res.ok && res.pending) {
+          /* the account is only created once the emailed code comes back */
+          $('auth-password').value = '';
+          $('auth-code').value = '';
+          setAuthMode('confirm');
+          $('auth-code').focus();
+          return;
+        }
+      } else if (authMode === 'confirm') {
+        const code = $('auth-code').value.trim();
+        if (!/^[0-9]{6}$/.test(code)) {
+          showAuthError('The code is the 6 digits from the email.');
+          return;
+        }
+        res = await E.Auth.registerConfirm(email, code);
       } else if (authMode === 'forgot') {
         res = await E.Auth.resetRequest(email);
         if (res && res.ok) {
@@ -1020,9 +1151,6 @@
       if (!res) {
         showAuthError('Could not reach the server — check your connection and try again.');
         $('auth-offline').hidden = false;
-      } else if (res.error === 'locked') {
-        const mins = Math.ceil((res.waitSeconds || 60) / 60);
-        showAuthError('Too many wrong tries — sign-in is paused for ' + mins + ' minute' + (mins === 1 ? '' : 's') + '.');
       } else if (authMode !== 'forgot') {
         showAuthError(res.error || 'Something went wrong — please try again.');
       }
@@ -1050,12 +1178,81 @@
     await bootProfiles();
   }
 
-  async function signOutFamily() {
-    if (!window.confirm('Sign out of the family account on this device?')) return;
-    await E.Net.pushNow();
+  /* Push the current player's progress before signing out. Returns false if the
+     parent chose to stay signed in rather than lose progress the server could
+     not be given. pushNow() answers null both for "nothing to push" and for a
+     failed push, so a push only counts as failed when one was actually needed. */
+  async function pushBeforeSignOut() {
+    const needed = E.Net.canSync();
+    const pushed = await E.Net.pushNow();
+    if (needed && !pushed) {
+      return window.confirm('The latest progress on this device could not be saved to the server. Sign out anyway and lose it?');
+    }
+    return true;
+  }
+
+  /* clear this family's cached players and progress from the browser (all app
+     keys in device-only play), then drop the in-memory player */
+  function wipeThisFamily() {
+    E.Auth.wipeLocal(!E.Auth.signedIn());
     E.Profiles.signOut();
+  }
+
+  async function signOutFamily() {
+    if (!window.confirm('Sign out of the family account on this device? Players and progress cached in this browser will be removed.')) return;
+    if (!(await pushBeforeSignOut())) return;
+    wipeThisFamily();
     await E.Auth.signOut();
     window.location.reload(); /* clean slate — reboot into the sign-in screen */
+  }
+
+  /* "Sign out everywhere": every session on every device, including this one */
+  async function signOutEverywhere() {
+    if (!window.confirm('Sign out of the family account on every device and browser, including this one?')) return;
+    if (!(await pushBeforeSignOut())) return;
+    const res = await E.Net.apiRaw('logout-all', {});
+    if (!res || !res.ok) {
+      window.alert('Could not sign out everywhere. Check your connection and try again.');
+      return;
+    }
+    Parent.token = ''; /* the family session is gone, so the parent one is too */
+    wipeThisFamily();
+    E.Auth.clear();
+    window.location.reload();
+  }
+
+  /* wipe every app key in this browser, signed in or not */
+  function forgetDevice() {
+    if (!window.confirm('Forget this device? Every player and all progress stored in this browser will be removed. Progress already saved to a family account stays on the server.')) return;
+    E.Auth.wipeLocal(true);
+    E.Profiles.signOut();
+    E.Auth.clear();
+    window.location.reload();
+  }
+
+  async function changePassword() {
+    const current = $('pw-current').value;
+    const next = $('pw-new').value;
+    const again = $('pw-new2').value;
+    const err = $('pw-error'), ok = $('pw-ok');
+    err.hidden = true; ok.hidden = true;
+    const say = function (el, msg) { el.textContent = msg; el.hidden = false; };
+    if (!current) { say(err, 'Enter your current password first.'); return; }
+    if (next.length < 8) { say(err, 'The new password needs at least 8 characters.'); return; }
+    if (next !== again) { say(err, 'The new passwords do not match.'); return; }
+    if (next === current) { say(err, 'Choose a password that is different from the current one.'); return; }
+    const btn = $('btn-pw-change');
+    btn.disabled = true;
+    try {
+      const res = await E.Net.apiRaw('change-password', { current: current, new: next });
+      if (!res) { say(err, 'Could not reach the server. Try again in a moment.'); return; }
+      if (!res.ok) { say(err, res.error || 'That did not work. Check your current password and try again.'); return; }
+      if (res.auth && res.account) E.Auth.apply(res); /* in case the server issued a fresh session */
+      $('pw-current').value = ''; $('pw-new').value = ''; $('pw-new2').value = '';
+      say(ok, 'Password changed.');
+    } finally {
+      btn.disabled = false;
+    }
   }
 
   /* ---------------- wiring ---------------- */
@@ -1066,7 +1263,7 @@
     /* data sanity */
     if (!E.data.spelling.length || !E.data.grammar.length) {
       document.body.innerHTML =
-        '<div style="font-family:sans-serif;color:#fff;text-align:center;padding:3rem 1.5rem">' +
+        '<div class="data-missing">' +
         '<h1>🔮 Spelgram 3000</h1><p>Word banks are still loading or missing.<br>' +
         'Make sure the <b>data/</b> folder was uploaded next to index.html.</p></div>';
       return;
@@ -1107,6 +1304,13 @@
       closeModal('modal-settings'); openParentZone();
     });
     $('btn-pin-cancel').addEventListener('click', function () { closeModal('modal-pin'); });
+    $('btn-pin-forgot').addEventListener('click', function () { showPinReset(true); });
+    $('btn-pin-reset-go').addEventListener('click', function () { submitPinReset(); });
+    ['pin-reset-password', 'pin-reset-code'].forEach(function (id) {
+      $(id).addEventListener('keydown', function (ev) {
+        if (ev.key === 'Enter' && !$('btn-pin-reset-go').disabled) submitPinReset();
+      });
+    });
     $('btn-parent-back').addEventListener('click', function () {
       E.SFX.play('click');
       Parent.lock(); /* leaving the zone ends the parent session */
@@ -1138,6 +1342,13 @@
       const res = await E.Net.api('parent-set-key', { token: Parent.token, key: '' });
       if (res) { showParentZone(); }
     });
+    $('btn-pw-change').addEventListener('click', function () { changePassword(); });
+    ['pw-current', 'pw-new', 'pw-new2'].forEach(function (id) {
+      $(id).addEventListener('keydown', function (ev) {
+        if (ev.key === 'Enter' && !$('btn-pw-change').disabled) changePassword();
+      });
+    });
+    $('btn-logout-all').addEventListener('click', function () { signOutEverywhere(); });
 
     $('btn-level-cancel').addEventListener('click', function () { closeModal('modal-level'); });
     $('btn-level-start').addEventListener('click', function () {
@@ -1212,7 +1423,7 @@
 
     /* make sure the last few answers reach the server when the tab closes,
        and pick up newer progress from other devices when the tab comes back */
-    window.addEventListener('pagehide', function () { E.Net.flushBeacon(); Parent.token = ''; });
+    window.addEventListener('pagehide', function () { E.Net.flushBeacon(); Parent.lockBeacon(); });
     document.addEventListener('visibilitychange', function () {
       if (document.visibilityState === 'hidden') { E.Net.flushBeacon(); return; }
       E.Profiles.resync().then(function (replaced) {
@@ -1247,6 +1458,7 @@
       }
     });
     $('btn-auth-device').addEventListener('click', function () { enterDeviceMode(); });
+    $('btn-auth-forget-device').addEventListener('click', function () { forgetDevice(); });
     $('btn-signout').addEventListener('click', function () { signOutFamily(); });
     E.Auth.onExpired = function () {
       showAuthScreen('login', 'Your sign-in expired — please sign in again.');
