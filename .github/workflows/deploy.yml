@@ -1,0 +1,79 @@
+# Deploys every push to main to https://c31.ai/spelgram3000/ on the GoDaddy
+# host over FTPS, replacing the manual upload. main is production.
+#
+# Needs three repository secrets (Settings > Secrets and variables > Actions):
+#   FTP_SERVER    the host name on the server's TLS certificate
+#                 (p3plzcpnl508161.prod.phx3.secureserver.net); an IP address
+#                 or an uncovered name fails the certificate check below
+#   FTP_USERNAME  the FTP login whose root is the web root (where c31.ai's
+#                 index.html sits at "/"), the same account the website uses
+#   FTP_PASSWORD  its password
+#
+# Only the published files go up: index.html, api.php, favicon.svg, css/,
+# js/ and data/. The runtime folder server-data/, spelgram-local.php,
+# mail.json, tests, docs and this workflow never leave the repository. The
+# action deletes only files it uploaded itself, so the server-only files are
+# never touched.
+
+name: Deploy to GoDaddy
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: deploy-spelgram
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+
+      - name: Upload changed files over FTPS
+        uses: SamKirkland/FTP-Deploy-Action@110f9186c050f71550953127052e77650219c287 # v4.4.0
+        with:
+          server: ${{ secrets.FTP_SERVER }}
+          username: ${{ secrets.FTP_USERNAME }}
+          password: ${{ secrets.FTP_PASSWORD }}
+          protocol: ftps
+          port: 21
+          # strict checks the server's certificate against FTP_SERVER instead
+          # of accepting any certificate (the action's default).
+          security: strict
+          local-dir: ./
+          server-dir: ./spelgram3000/
+          exclude: |
+            **/.git*
+            **/.git*/**
+            .github/**
+            tests/**
+            docs/**
+            README.md
+            LICENSE
+            server-data/**
+            spelgram-local.php
+            **/.claude/**
+            **/.DS_Store
+
+      # The API must answer, and the live page must carry the scripts just
+      # deployed; otherwise the files went somewhere the app is not served from.
+      - name: Check the live app
+        run: |
+          curl -fsS "https://c31.ai/spelgram3000/api.php?action=ping" | grep -q '"ok":true'
+          expected=$(grep -o 'js/app\.js?v=[0-9]*' index.html | head -1)
+          for attempt in 1 2 3 4 5; do
+            if curl -fsS -H 'Cache-Control: no-cache' "https://c31.ai/spelgram3000/?deploy=${GITHUB_SHA}" | grep -qF "$expected"; then
+              echo "Live page serves $expected"
+              exit 0
+            fi
+            sleep 10
+          done
+          echo "::error::c31.ai/spelgram3000/ is not serving $expected."
+          exit 1
