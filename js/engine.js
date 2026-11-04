@@ -90,10 +90,17 @@
     },
     /* these return the raw server response (not null on a clean error) so the
        sign-in screen can show the real message — "wrong email or password" etc. */
+    /* register answers {ok, pending}: the account only exists once the emailed
+       code is confirmed, so nothing is applied here */
     register: function (family, email, password) {
       const self = this;
       return Net.apiRaw('register', { family: family, email: email, password: password }, 15000)
-        .then(function (res) { if (res && res.ok) self.apply(res); return res; });
+        .then(function (res) { if (res && res.ok && res.auth && res.account) self.apply(res); return res; });
+    },
+    registerConfirm: function (email, code) {
+      const self = this;
+      return Net.apiRaw('register-confirm', { email: email, code: code }, 15000)
+        .then(function (res) { if (res && res.ok && res.auth && res.account) self.apply(res); return res; });
     },
     login: function (email, password) {
       const self = this;
@@ -121,6 +128,10 @@
           self.persist();
           return true;
         }
+        // The server no longer honours this token (signed out everywhere, or
+        // expired): forget this family's cached players and progress too.
+        self.wipeLocal(false);
+        Profiles.signOut();
         self.clear();
         return false;
       });
@@ -134,9 +145,37 @@
       this.token = ''; this.acctId = ''; this.email = ''; this.family = '';
       this.persist();
     },
-    /* the server said "sign-in required" — the session expired or was revoked */
+    /* Remove this family's cached players and progress from the browser. With
+       all=true (or when no account is signed in: device-only play) every app key
+       goes, so nothing of anyone is left behind on a shared device. Must run
+       while acctId is still set: the namespaced keys are derived from it. */
+    wipeLocal: function (all) {
+      const acct = this.acctId;
+      const doomed = [];
+      try {
+        for (let i = 0; i < localStorage.length; i++) {
+          const k = localStorage.key(i);
+          if (!k || k.indexOf('spelgram3000-') !== 0) continue;
+          if (all || !acct ||
+              k === KEY_AUTH ||
+              k === 'spelgram3000-current-' + acct ||
+              k === 'spelgram3000-v2-profiles-local-' + acct ||
+              k.indexOf('spelgram3000-v2-save-' + acct + '-') === 0) {
+            doomed.push(k);
+          }
+        }
+        if (all) doomed.push('spelgram-parent-token');
+        doomed.forEach(function (k) { localStorage.removeItem(k); });
+      } catch (e) {}
+      try { sessionStorage.removeItem('spelgram-parent-token'); } catch (e) {}
+    },
+    /* the server said "sign-in required" — the session expired or was revoked.
+       No push is possible with a dead token, so the family's cached data goes
+       and the in-memory player is dropped before the account is cleared. */
     expire: function () {
       if (!this.token) return;
+      this.wipeLocal(false);
+      Profiles.signOut();
       this.clear();
       if (this.onExpired) this.onExpired();
     },
@@ -280,9 +319,17 @@
     },
     flushBeacon: function () {
       if (!this.canSync() || !save) return;
+      this.beacon('save', { id: currentProfileId, save: save });
+    },
+    /* fire-and-forget call for pagehide, where fetch may never leave the tab */
+    beacon: function (action, payload) {
       try {
         navigator.sendBeacon('api.php', new Blob(
-          [JSON.stringify({ action: 'save', auth: Auth.token, id: currentProfileId, save: save })],
+          [JSON.stringify(Object.assign(
+            { action: action },
+            Auth.token ? { auth: Auth.token } : {},
+            payload || {}
+          ))],
           { type: 'text/plain' }
         ));
       } catch (e) {}
@@ -308,8 +355,9 @@
     summaryOf: function (s) {
       if (!s) return { xp: 0, stars: 0, badges: 0 };
       let stars = 0;
-      Object.keys(s.levels || {}).forEach(function (k) { stars += (s.levels[k].stars || 0); });
-      return { xp: s.xp || 0, stars: stars, badges: (s.badges || []).length };
+      const levels = asPlainObject(s.levels);
+      Object.keys(levels).forEach(function (k) { stars += Number(levels[k] && levels[k].stars) || 0; });
+      return { xp: Number(s.xp) || 0, stars: stars, badges: Array.isArray(s.badges) ? s.badges.length : 0 };
     },
     /* profiles created while offline get real server profiles once we're back online */
     promoteLocals: function () {

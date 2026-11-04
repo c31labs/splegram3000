@@ -7,11 +7,8 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
   <meta name="theme-color" content="#2e1065">
   <title>Spelgram 3000 — Spelling &amp; Grammar Adventure</title>
-  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='90'%3E%F0%9F%94%AE%3C/text%3E%3C/svg%3E">
-  <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Baloo+2:wght@600;700;800&family=Nunito:ital,wght@0,400;0,600;0,700;0,800;1,600&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="css/style.css">
+  <link rel="icon" type="image/svg+xml" href="favicon.svg">
+  <link rel="stylesheet" href="css/style.css?v=20261105">
 </head>
 <body>
 
@@ -33,7 +30,7 @@
           <label class="auth-label" id="auth-email-wrap">Email
             <input type="email" id="auth-email" maxlength="120" autocomplete="email" placeholder="you@example.com">
           </label>
-          <label class="auth-label" id="auth-code-wrap" hidden>Reset code (check your email)
+          <label class="auth-label" id="auth-code-wrap" hidden><span id="auth-code-label">Reset code (check your email)</span>
             <input type="text" id="auth-code" maxlength="6" inputmode="numeric" autocomplete="one-time-code" placeholder="6-digit code">
           </label>
           <label class="auth-label" id="auth-password-wrap">Password
@@ -44,6 +41,7 @@
           <div class="auth-links">
             <button type="button" class="linklike" id="btn-auth-toggle">New here? Create your family account</button>
             <button type="button" class="linklike" id="btn-auth-forgot">Forgot your password?</button>
+            <button type="button" class="linklike" id="btn-auth-forget-device">Forget this device</button>
           </div>
           <div id="auth-offline" hidden>
             <p class="profiles-offline">📴 Can't reach the server right now.</p>
@@ -54,7 +52,8 @@
           </div>
         </div>
         <p class="auth-privacy">Kids never need an email or password — they just pick their name.<br>
-          Your email is only used to sign in and reset your password.</p>
+          Your email is only used to sign in and reset your password.<br>
+          Forget this device removes every player and all cached progress stored in this browser.</p>
       </div>
     </section>
 
@@ -112,6 +111,27 @@
         <p class="parent-note">With a key from <b>console.anthropic.com</b>, the Word Lab generates brand-new
           AI-written questions matched to the Australian curriculum. Without one, it unlocks batches from the
           built-in word vault (400 extra items) — both always give the kids fresh material.</p>
+      </div>
+      <div class="card parent-block no-print">
+        <h3>👪 Family account</h3>
+        <p class="parent-note" id="account-line"></p>
+        <h4 class="account-subhead">Change the family password</h4>
+        <label class="auth-label">Current password
+          <input type="password" id="pw-current" maxlength="200" autocomplete="current-password" placeholder="Your current password">
+        </label>
+        <label class="auth-label">New password
+          <input type="password" id="pw-new" maxlength="200" autocomplete="new-password" placeholder="At least 8 characters">
+        </label>
+        <label class="auth-label">New password again
+          <input type="password" id="pw-new2" maxlength="200" autocomplete="new-password" placeholder="Type it once more">
+        </label>
+        <p class="auth-error" id="pw-error" hidden></p>
+        <p class="auth-ok" id="pw-ok" hidden></p>
+        <div class="account-actions">
+          <button id="btn-pw-change" class="btn btn-ghost btn-sm">Change password</button>
+          <button id="btn-logout-all" class="btn btn-danger btn-sm">Sign out everywhere</button>
+        </div>
+        <p class="parent-note">Sign out everywhere ends the family sign-in on every device and browser, including this one.</p>
       </div>
     </section>
 
@@ -300,9 +320,21 @@
     <div class="modal card pin-modal">
       <h2 id="pin-title">Parent zone</h2>
       <p id="pin-sub" class="parent-note"></p>
-      <div class="pin-dots" id="pin-dots" aria-live="polite"></div>
-      <div class="pin-pad" id="pin-pad"></div>
+      <div id="pin-entry">
+        <div class="pin-dots" id="pin-dots" aria-live="polite"></div>
+        <div class="pin-pad" id="pin-pad"></div>
+      </div>
+      <div id="pin-reset" class="pin-reset" hidden>
+        <label class="auth-label">Family password
+          <input type="password" id="pin-reset-password" maxlength="200" autocomplete="current-password" placeholder="The password you sign in with">
+        </label>
+        <label class="auth-label">New parent code
+          <input type="text" id="pin-reset-code" maxlength="8" inputmode="numeric" autocomplete="off" placeholder="6 to 8 digits">
+        </label>
+        <button id="btn-pin-reset-go" class="btn btn-primary btn-wide">Set the new code</button>
+      </div>
       <p class="pin-error" id="pin-error" hidden></p>
+      <button type="button" class="linklike pin-forgot" id="btn-pin-forgot">Forgot the parent code?</button>
       <button id="btn-pin-cancel" class="btn btn-ghost btn-wide">Cancel</button>
     </div>
   </div>
@@ -338,7 +370,7 @@
 
   <canvas id="confetti-canvas" aria-hidden="true"></canvas>
 
-  <script src="js/engine.js"></script>
+  <script src="js/engine.js?v=20261105"></script>
   <script src="data/spelling-l1-2.js"></script>
   <script src="data/spelling-l3-4.js"></script>
   <script src="data/spelling-l5-6.js"></script>
@@ -349,6 +381,6 @@
   <script src="data/grammar-l4-6.js"></script>
   <script src="data/grammar-l7-10.js"></script>
   <script src="data/grammar-l11-12.js"></script>
-  <script src="js/app.js"></script>
+  <script src="js/app.js?v=20261105"></script>
 </body>
 </html>

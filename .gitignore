@@ -2,6 +2,9 @@
 # key, the optional Anthropic API key, and the family's player progress.
 server-data/
 
+# Per-server settings (where the data folder lives) — created by hand on the host
+spelgram-local.php
+
 # Local tooling
 .claude/
 .DS_Store
